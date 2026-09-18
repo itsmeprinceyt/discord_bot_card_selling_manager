@@ -48,7 +48,20 @@ export default function Home() {
 
         {/* Footer */}
         <p className="text-xs text-neutral-600 text-center mt-6">
-          Access is invite-only.
+          Access is invite-only ·{" "}
+          <Link
+            href="/policy/privacy"
+            className="transition hover:text-neutral-400"
+          >
+            Privacy
+          </Link>{" "}
+          ·{" "}
+          <Link
+            href="/policy/terms-and-condition"
+            className="transition hover:text-neutral-400"
+          >
+            Terms
+          </Link>
         </p>
       </div>
     </main>
