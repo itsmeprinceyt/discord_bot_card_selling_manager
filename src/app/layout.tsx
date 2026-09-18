@@ -14,23 +14,25 @@ const geistMono = Geist_Mono({
 
 const siteUrl = "https://discordbotcardsellingmanager.vercel.app";
 
+const siteDescription =
+  "A manual organization system for Discord in-game bot cards. Keep your card collection tidy, track what you owe, and manage your cards for selling — all in one clean, easy-to-use dashboard.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
     default: "Discord Bot Card Selling Manager",
     template: "%s | Discord Bot Card Selling Manager",
   },
-  description:
-    "Manage and sell digital cards effortlessly with Discord Bot Card Selling Manager. Automate orders, track inventory, and streamline your card-selling business directly on Discord.",
+  description: siteDescription,
   keywords: [
-    "Discord bot",
-    "card selling",
-    "card manager",
-    "digital cards",
-    "Discord bot manager",
-    "sell cards on Discord",
-    "inventory management",
-    "Discord automation",
+    "Discord bot cards",
+    "in-game cards",
+    "card collection manager",
+    "card organizer",
+    "Discord card selling",
+    "card inventory tracker",
+    "manual card organization",
+    "Discord trading cards",
   ],
   authors: [
     { name: "www.itsmeprince.com", url: "https://www.itsmeprince.com" },
@@ -58,14 +60,12 @@ export const metadata: Metadata = {
     url: siteUrl,
     siteName: "Discord Bot Card Selling Manager",
     title: "Discord Bot Card Selling Manager",
-    description:
-      "Manage and sell digital cards effortlessly with Discord Bot Card Selling Manager. Automate orders, track inventory, and streamline your card-selling business directly on Discord.",
+    description: siteDescription,
   },
   twitter: {
     card: "summary",
     title: "Discord Bot Card Selling Manager",
-    description:
-      "Manage and sell digital cards effortlessly with Discord Bot Card Selling Manager. Automate orders, track inventory, and streamline your card-selling business directly on Discord.",
+    description: siteDescription,
   },
 };
 
