@@ -12,7 +12,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = "https://discordbotcardsellingmanager.vercel.app";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: {
     default: "Discord Bot Card Selling Manager",
     template: "%s | Discord Bot Card Selling Manager",
@@ -52,7 +55,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "/",
+    url: siteUrl,
     siteName: "Discord Bot Card Selling Manager",
     title: "Discord Bot Card Selling Manager",
     description:
