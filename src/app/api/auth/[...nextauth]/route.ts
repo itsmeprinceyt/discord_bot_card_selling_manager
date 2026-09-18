@@ -13,15 +13,27 @@ import { MyJWT } from "../../../../types/User/JWT.type";
 import { getCurrentDateTime } from "../../../../utils/ValueFetcher/getDateTime.util";
 import { generateULID } from "../../../../utils/generateULID.util";
 import {
-  getValidInviteCode,
+  matchInviteCode,
   regenerateInviteCode,
 } from "../../../../utils/getInviteCode.util";
 
+/* -------------------------------------------------------------------------- */
+/*  Environment                                                               */
+/* -------------------------------------------------------------------------- */
+
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
-const SECRET_LOGIN_CODE = process.env.SECRET_LOGIN_CODE!;
+
+/* -------------------------------------------------------------------------- */
+/*  Database pool (lazy, module-scoped singleton)                             */
+/* -------------------------------------------------------------------------- */
 
 let pool: Pool | null = null;
+
+/**
+ * Lazily initializes and returns the MySQL connection pool.
+ * Safe to call repeatedly — the pool is created once per process.
+ */
 async function getPool(): Promise<Pool> {
   if (!pool) {
     await initServer();
@@ -30,17 +42,34 @@ async function getPool(): Promise<Pool> {
   return pool;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Small helpers                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Trims a value to a string and enforces a maximum length.
+ * Returns an empty string for non-string inputs.
+ */
 function sanitizeString(value: unknown, maxLen = 255): string {
   if (typeof value !== "string") return "";
   const s = value.trim();
   return s.length > maxLen ? s.slice(0, maxLen) : s;
 }
 
+/** Basic RFC-5322-ish email shape check. */
 function isValidEmail(email: string): boolean {
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return re.test(email);
 }
 
+/* -------------------------------------------------------------------------- */
+/*  NextAuth module augmentation                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Extends the default NextAuth `Session` and `User` types with the fields
+ * this app manages in the `users` table.
+ */
 declare module "next-auth" {
   interface Session {
     user: {
@@ -61,11 +90,16 @@ declare module "next-auth" {
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/*  NextAuth options                                                          */
+/* -------------------------------------------------------------------------- */
+
 const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
-    maxAge: 60 * 24 * 30,
+    maxAge: 60 * 24 * 30, // 30 days
   },
+
   providers: [
     Google({
       clientId: GOOGLE_CLIENT_ID,
@@ -79,17 +113,40 @@ const authOptions: NextAuthOptions = {
       },
     }),
   ],
+
   pages: {
     signIn: "/login",
     error: "/login",
   },
 
   callbacks: {
+    /**
+     * ## `signIn` callback
+     *
+     * Runs **before** a session is created. Returns `false` to reject the
+     * whole flow with `AccessDenied`.
+     *
+     * ### Rules
+     *
+     * | User type     | Cookie state         | Result                                     |
+     * |---------------|----------------------|--------------------------------------------|
+     * | Existing user | (any)                | Logged in — no code required               |
+     * | Existing user | env `SECRET_LOGIN_CODE` | Logged in, promoted to `is_admin = TRUE` |
+     * | New user      | env `SECRET_LOGIN_CODE` | Created with `is_admin = TRUE`           |
+     * | New user      | DB invite code       | Created normally, code rotates afterwards  |
+     * | New user      | none / invalid       | **Rejected**                               |
+     *
+     * ### Side effects
+     *
+     * - Deletes `login_code` cookie on success.
+     * - Rotates the DB `invite_code` **only** after a DB-code signup.
+     * - Never rotates the env secret (it's immutable at runtime).
+     */
     async signIn({ profile }) {
       const pool = await getPool();
       const cookieStore = await cookies();
 
-      // ---- 1. Validate Google profile ----
+      /* ---- 1. Validate Google profile --------------------------------- */
       const now = getCurrentDateTime();
       const googleProfile = profile as GoogleProfile;
 
@@ -104,12 +161,20 @@ const authOptions: NextAuthOptions = {
 
       if (!googleId) return false;
 
+      /* ---- 2. Validate the login code ------------------------------- */
       const loginCode = cookieStore.get("login_code")?.value;
-      const usingSecretCode =
-        Boolean(SECRET_LOGIN_CODE) && loginCode === SECRET_LOGIN_CODE;
+
+      // Env code takes priority over DB code inside matchInviteCode:
+      //   "secret" → admin signup path
+      //   "db"     → normal signup path (code rotates afterwards)
+      //   null     → only existing users may pass
+      const match = loginCode ? await matchInviteCode(loginCode) : null;
+
+      const usingSecretCode = match === "secret";
+      const usingDbCode = match === "db";
 
       try {
-        // ---- 2. Does the user already exist? ----
+        /* ---- 3. Does the user already exist? ------------------------ */
         const [rows] = await pool.execute<UserRow[]>(
           "SELECT id, is_admin FROM users WHERE email = ? OR google_id = ?",
           [email, googleId],
@@ -117,7 +182,7 @@ const authOptions: NextAuthOptions = {
 
         const userExists = Array.isArray(rows) && rows.length > 0;
 
-        // ---- 3a. Existing user → log in, no code required ----
+        /* ---- 3a. Existing user → log in, no code required ----------- */
         if (userExists) {
           if (usingSecretCode) {
             await pool.execute(
@@ -139,27 +204,13 @@ const authOptions: NextAuthOptions = {
           return true;
         }
 
-        // ---- 3b. New user → code is mandatory ----
-        if (!loginCode) {
-          console.log("Signup rejected: no login_code cookie");
+        /* ---- 3b. New user → must have a valid code ------------------ */
+        if (!usingSecretCode && !usingDbCode) {
+          console.log("Signup rejected: no valid invite code");
           return false;
         }
 
-        if (!usingSecretCode) {
-          const validCode = await getValidInviteCode();
-
-          if (!validCode) {
-            console.log("Signup rejected: no invite code configured");
-            return false;
-          }
-
-          if (loginCode !== validCode) {
-            console.log("Signup rejected: login code does not match");
-            return false;
-          }
-        }
-
-        // ---- 3c. Create the new user ----
+        /* ---- 3c. Create the new user -------------------------------- */
         const newId = generateULID({
           prefix: "user",
           separator: "_",
@@ -172,10 +223,10 @@ const authOptions: NextAuthOptions = {
           [newId, googleId, email, name, image, usingSecretCode, now],
         );
 
-        // ---- 3d. Rotate the invite code so it can't be reused ----
-        // Only rotate if the signup came via the DB invite code.
-        // Env SECRET_LOGIN_CODE can't be regenerated, so skip.
-        if (!usingSecretCode) {
+        /* ---- 3d. Rotate the DB invite code (single-use semantics) --- */
+        // Only rotate when the signup came through the DB code.
+        // The env SECRET_LOGIN_CODE is immutable at runtime.
+        if (usingDbCode) {
           const regenerated = await regenerateInviteCode();
           if (regenerated) {
             console.log(`Invite code regenerated after signup: ${regenerated}`);
@@ -186,7 +237,7 @@ const authOptions: NextAuthOptions = {
           }
         }
 
-        // Consume the cookie so it can't be reused
+        // Consume the cookie so it can't be replayed.
         cookieStore.delete("login_code");
 
         return true;
@@ -196,6 +247,13 @@ const authOptions: NextAuthOptions = {
       }
     },
 
+    /**
+     * ## `jwt` callback
+     *
+     * Runs whenever a JWT is created or read. We re-hydrate the token from
+     * the DB on `signIn` and on explicit `update` triggers, so admin status
+     * changes are picked up without requiring a re-login.
+     */
     async jwt({ token, user, account, profile, trigger }) {
       const t = token as MyJWT;
       const pool = await getPool();
@@ -235,6 +293,12 @@ const authOptions: NextAuthOptions = {
       return t;
     },
 
+    /**
+     * ## `session` callback
+     *
+     * Copies the fields we care about from the JWT onto the client-visible
+     * session object.
+     */
     async session({ session, token }) {
       const t = token as MyJWT;
 
@@ -249,6 +313,12 @@ const authOptions: NextAuthOptions = {
       return session;
     },
 
+    /**
+     * ## `redirect` callback
+     *
+     * Keeps same-origin redirects intact; everything else goes to
+     * `/dashboard`.
+     */
     async redirect({ url, baseUrl }) {
       if (url.startsWith(baseUrl)) return url;
       return baseUrl + "/dashboard";
