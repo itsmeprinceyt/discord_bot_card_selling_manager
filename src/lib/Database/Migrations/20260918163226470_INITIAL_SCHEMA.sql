@@ -69,15 +69,3 @@ CREATE TABLE IF NOT EXISTS orders (
     CONSTRAINT fk_orders_card FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
     UNIQUE KEY uq_order_buyer_card (buyer_id, card_id)
 );
--- ==========================================================
--- ACTIVITY LOGS  (belong to an account)
--- ==========================================================
-CREATE TABLE IF NOT EXISTS activity_logs (
-    id VARCHAR(40) NOT NULL PRIMARY KEY,
-    account_id VARCHAR(40) NOT NULL,
-    action_type VARCHAR(100) NOT NULL,
-    description TEXT NOT NULL,
-    metadata TEXT DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_logs_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
-);

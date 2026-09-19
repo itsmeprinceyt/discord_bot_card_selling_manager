@@ -2,7 +2,7 @@
 import fs from "fs";
 import path from "path";
 import type { Pool, PoolConnection } from "mysql2/promise";
-import { setupIndexes } from "./createIndexs";
+import { setupIndexes } from "./create.index.db";
 import MIGRATIONS_TABLE_SQL from "./Queries/migration.queries";
 import { getProduction } from "../../utils/ValueFetcher/getProduction.util";
 import { getCurrentDateTime } from "../../utils/ValueFetcher/getDateTime.util";

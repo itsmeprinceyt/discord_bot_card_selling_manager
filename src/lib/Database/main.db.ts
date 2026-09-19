@@ -1,5 +1,5 @@
 import { getProduction } from "../../utils/ValueFetcher/getProduction.util";
-import { getDbPool, initializeDatabase } from "./initializeDatabase";
+import { getDbPool, initializeDatabase } from "./init.db";
 
 let initializedPromise: Promise<void> | null = null;
 

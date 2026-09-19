@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { db, initServer } from "../../../../lib/Database/initializeMainServer";
+import { db, initServer } from "../../../../lib/Database/main.db";
 import type { RowDataPacket } from "mysql2";
-import requireAdmin from "../../../../utils/Perms/requireAdmin.backend.util";
+import requireAdmin from "../../../../utils/Permission/requireAdmin.backend.util";
 
 interface InviteCodeRow extends RowDataPacket {
   code: string;

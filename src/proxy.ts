@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { MyJWT } from "./types/User/JWT.type";
-import { rateLimitMiddleware } from "./lib/Redis/rateLimiter";
+import { rateLimitMiddleware } from "./lib/Redis/rateLimiter.redis";
 
 // ─── API Groups ──────────────────────────────────────────────────────────────
 // Every /api/* route MUST live under one of these prefixes.

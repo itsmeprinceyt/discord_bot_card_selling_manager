@@ -1,5 +1,5 @@
 import type { RowDataPacket } from "mysql2";
-import { db, initServer } from "../lib/Database/initializeMainServer";
+import { db, initServer } from "../lib/Database/main.db";
 import { generateULID } from "./generateULID.util";
 
 interface InviteCodeRow extends RowDataPacket {

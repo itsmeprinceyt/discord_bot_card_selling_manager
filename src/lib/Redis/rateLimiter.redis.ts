@@ -159,7 +159,7 @@ export class RateLimiter {
 
   private static async getRedisClient() {
     try {
-      const { getRedis } = await import("./redis");
+      const { getRedis } = await import("./redis.config");
       const redis = getRedis();
 
       await redis.ping();

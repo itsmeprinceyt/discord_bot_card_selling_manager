@@ -5,7 +5,7 @@ import NextAuth, {
 } from "next-auth";
 import Google, { GoogleProfile } from "next-auth/providers/google";
 import { cookies } from "next/headers";
-import { initServer, db } from "../../../../lib/Database/initializeMainServer";
+import { initServer, db } from "../../../../lib/Database/main.db";
 
 import type { Pool } from "mysql2/promise";
 import { UserRow } from "../../../../types/User/UserRow.type";
@@ -16,6 +16,7 @@ import {
   matchInviteCode,
   regenerateInviteCode,
 } from "../../../../utils/getInviteCode.util";
+import { auditLog } from "../../../../services/AuditLog.service";
 
 /* -------------------------------------------------------------------------- */
 /*  Environment                                                               */
@@ -66,10 +67,6 @@ function isValidEmail(email: string): boolean {
 /*  NextAuth module augmentation                                              */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Extends the default NextAuth `Session` and `User` types with the fields
- * this app manages in the `users` table.
- */
 declare module "next-auth" {
   interface Session {
     user: {
@@ -128,19 +125,22 @@ const authOptions: NextAuthOptions = {
      *
      * ### Rules
      *
-     * | User type     | Cookie state         | Result                                     |
-     * |---------------|----------------------|--------------------------------------------|
-     * | Existing user | (any)                | Logged in — no code required               |
-     * | Existing user | env `SECRET_LOGIN_CODE` | Logged in, promoted to `is_admin = TRUE` |
-     * | New user      | env `SECRET_LOGIN_CODE` | Created with `is_admin = TRUE`           |
-     * | New user      | DB invite code       | Created normally, code rotates afterwards  |
-     * | New user      | none / invalid       | **Rejected**                               |
+     * | User type     | Cookie state            | Result                                     |
+     * |---------------|-------------------------|--------------------------------------------|
+     * | Existing user | (any)                   | Logged in — no code required               |
+     * | Existing user | env `SECRET_LOGIN_CODE` | Logged in, promoted to `is_admin = TRUE`   |
+     * | New user      | env `SECRET_LOGIN_CODE` | Created with `is_admin = TRUE`             |
+     * | New user      | DB invite code          | Created normally, code rotates afterwards  |
+     * | New user      | none / invalid          | **Rejected**                               |
      *
      * ### Side effects
      *
      * - Deletes `login_code` cookie on success.
      * - Rotates the DB `invite_code` **only** after a DB-code signup.
      * - Never rotates the env secret (it's immutable at runtime).
+     * - Writes to `audit_logs` **only on new-user registration**
+     *   (and on rejected signup attempts). Normal logins are NOT audited
+     *   to avoid log spam.
      */
     async signIn({ profile }) {
       const pool = await getPool();
@@ -182,7 +182,7 @@ const authOptions: NextAuthOptions = {
 
         const userExists = Array.isArray(rows) && rows.length > 0;
 
-        /* ---- 3a. Existing user → log in, no code required ----------- */
+        /* ---- 3a. Existing user → log in, NO audit log --------------- */
         if (userExists) {
           if (usingSecretCode) {
             await pool.execute(
@@ -207,6 +207,18 @@ const authOptions: NextAuthOptions = {
         /* ---- 3b. New user → must have a valid code ------------------ */
         if (!usingSecretCode && !usingDbCode) {
           console.log("Signup rejected: no valid invite code");
+
+          /* ---- Audit: rejected signup (rare event, worth logging) -- */
+          await auditLog.log(pool, {
+            action: "LOGIN",
+            entityType: "USER",
+            description:
+              `Signup rejected — new user attempted to register via Google OAuth ` +
+              `but supplied no valid invite code ` +
+              `(cookie "login_code" was ${loginCode ? "present but invalid" : "missing"}). ` +
+              `[email=${email}]`,
+          });
+
           return false;
         }
 
@@ -224,10 +236,10 @@ const authOptions: NextAuthOptions = {
         );
 
         /* ---- 3d. Rotate the DB invite code (single-use semantics) --- */
-        // Only rotate when the signup came through the DB code.
-        // The env SECRET_LOGIN_CODE is immutable at runtime.
+        let rotationSucceeded: boolean | null = null;
         if (usingDbCode) {
           const regenerated = await regenerateInviteCode();
+          rotationSucceeded = Boolean(regenerated);
           if (regenerated) {
             console.log(`Invite code regenerated after signup: ${regenerated}`);
           } else {
@@ -239,6 +251,28 @@ const authOptions: NextAuthOptions = {
 
         // Consume the cookie so it can't be replayed.
         cookieStore.delete("login_code");
+
+        /* ---- Audit: new-user registration -------------------------- */
+        let signupDescription: string;
+        if (usingSecretCode) {
+          signupDescription =
+            `New user registered via Google OAuth using SECRET_LOGIN_CODE ` +
+            `(env secret) — created as admin. ` +
+            `[email=${email}]`;
+        } else {
+          signupDescription =
+            `New user registered via Google OAuth using a DB invite code — ` +
+            `created as normal user. ` +
+            `Invite code rotation ${rotationSucceeded ? "succeeded" : "FAILED — old code may still be valid"}. ` +
+            `[email=${email}]`;
+        }
+
+        await auditLog.log(pool, {
+          userId: newId,
+          action: "CREATE",
+          entityType: "USER",
+          description: signupDescription,
+        });
 
         return true;
       } catch (error: unknown) {
