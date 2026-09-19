@@ -49,6 +49,9 @@ export type InviteCodeMatch = "secret" | "db" | null;
  * ```
  */
 export async function matchInviteCode(input: string): Promise<InviteCodeMatch> {
+  await initServer();
+  const pool = db();
+
   // ---- Priority 1: env secret ----
   const secret = process.env.SECRET_LOGIN_CODE;
   if (secret && secret.length > 0 && input === secret) {
@@ -57,9 +60,6 @@ export async function matchInviteCode(input: string): Promise<InviteCodeMatch> {
 
   // ---- Priority 2: DB invite_code ----
   try {
-    await initServer();
-    const pool = db();
-
     const [rows] = await pool.execute<InviteCodeRow[]>(
       "SELECT code FROM invite_code LIMIT 1",
     );

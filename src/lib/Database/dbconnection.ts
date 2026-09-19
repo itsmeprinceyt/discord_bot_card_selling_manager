@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
 import mysql from "mysql2/promise";
 import { getProduction } from "../../utils/ValueFetcher/getProduction.util";
 
@@ -18,6 +17,14 @@ const dbPass = isProduction
   ? process.env.PROD_DB_PASS!
   : process.env.LOCAL_DB_PASS!;
 
+const dbPort = isProduction
+  ? process.env.PROD_DB_PORT
+    ? parseInt(process.env.PROD_DB_PORT)
+    : 3306
+  : process.env.LOCAL_DB_PORT
+    ? parseInt(process.env.LOCAL_DB_PORT)
+    : 3306;
+
 /**
  * @brief Ensures the target database exists in the MySQL server.
  *
@@ -33,6 +40,7 @@ export async function ensureDatabaseExists() {
       host: dbHost,
       user: dbUser,
       password: dbPass,
+      port: dbPort,
     });
 
     const [rows] = await connection.query(`SHOW DATABASES LIKE ?`, [dbName]);
@@ -68,14 +76,13 @@ export function createPool() {
       user: dbUser,
       password: dbPass,
       database: dbName,
-      timezone: "Z",
-      dateStrings: true,
+      port: dbPort,
       waitForConnections: true,
-      connectionLimit: 200,
+      connectionLimit: 10,
       queueLimit: 0,
       multipleStatements: true,
     });
-  } catch (err) {
+  } catch (err: unknown) {
     console.error(`[FAILED] Connection to database failed : `, err);
     process.exit(1);
   }
