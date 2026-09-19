@@ -2,13 +2,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "../api/auth/[...nextauth]/route";
-
-import {
-  ShieldCheck,
-  KeyRound,
-  LayoutDashboard,
-  ChevronRight,
-} from "lucide-react";
+import { ChevronRight, KeyRound, ScrollText, ShieldCheck } from "lucide-react";
 import AdminStats from "../(components)/Admin/Stats.Admin";
 
 export default async function AdminPage() {
@@ -22,16 +16,16 @@ export default async function AdminPage() {
 
   const links = [
     {
+      href: "/admin/audit-logs",
+      icon: ScrollText,
+      title: "Audit Logs",
+      desc: "Browse recent system activity and user registrations.",
+    },
+    {
       href: "/admin/invite-code",
       icon: KeyRound,
       title: "Invite Code",
       desc: "View, refresh, or set a custom invite code.",
-    },
-    {
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      title: "Your Dashboard",
-      desc: "Go to your personal dashboard.",
     },
   ];
 

@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Users, ShieldCheck, LayoutDashboard, Loader2 } from "lucide-react";
+import { Users, ShieldCheck, Loader2 } from "lucide-react";
 
 interface Stats {
   users: number;
   admins: number;
-  accounts: number;
 }
 
 export default function AdminStats() {
@@ -31,7 +30,6 @@ export default function AdminStats() {
           setStats({
             users: data.users ?? 0,
             admins: data.admins ?? 0,
-            accounts: data.accounts ?? 0,
           });
         }
       } catch {
@@ -71,7 +69,7 @@ export default function AdminStats() {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <StatCard
         icon={<Users className="h-4 w-4" />}
         label="Total users"
@@ -81,11 +79,6 @@ export default function AdminStats() {
         icon={<ShieldCheck className="h-4 w-4" />}
         label="Admins"
         value={stats.admins}
-      />
-      <StatCard
-        icon={<LayoutDashboard className="h-4 w-4" />}
-        label="Accounts"
-        value={stats.accounts}
       />
     </div>
   );
