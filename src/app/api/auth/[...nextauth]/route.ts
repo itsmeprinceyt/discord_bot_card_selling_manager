@@ -138,9 +138,9 @@ const authOptions: NextAuthOptions = {
      * - Deletes `login_code` cookie on success.
      * - Rotates the DB `invite_code` **only** after a DB-code signup.
      * - Never rotates the env secret (it's immutable at runtime).
-     * - Writes to `audit_logs` **only on new-user registration**
-     *   (and on rejected signup attempts). Normal logins are NOT audited
-     *   to avoid log spam.
+     * - Writes to `audit_logs` **only on successful new-user registration**.
+     *   Normal logins and rejected signup attempts are NOT audited to
+     *   avoid log spam.
      */
     async signIn({ profile }) {
       const pool = await getPool();
@@ -207,18 +207,7 @@ const authOptions: NextAuthOptions = {
         /* ---- 3b. New user → must have a valid code ------------------ */
         if (!usingSecretCode && !usingDbCode) {
           console.log("Signup rejected: no valid invite code");
-
-          /* ---- Audit: rejected signup (rare event, worth logging) -- */
-          await auditLog.log(pool, {
-            action: "LOGIN",
-            entityType: "USER",
-            description:
-              `Signup rejected — new user attempted to register via Google OAuth ` +
-              `but supplied no valid invite code ` +
-              `(cookie "login_code" was ${loginCode ? "present but invalid" : "missing"}). ` +
-              `[email=${email}]`,
-          });
-
+          // NO audit log here — would spam on every random attempt.
           return false;
         }
 
@@ -236,6 +225,8 @@ const authOptions: NextAuthOptions = {
         );
 
         /* ---- 3d. Rotate the DB invite code (single-use semantics) --- */
+        // Only rotate when the signup came through the DB code.
+        // The env SECRET_LOGIN_CODE is immutable at runtime.
         let rotationSucceeded: boolean | null = null;
         if (usingDbCode) {
           const regenerated = await regenerateInviteCode();
@@ -252,7 +243,7 @@ const authOptions: NextAuthOptions = {
         // Consume the cookie so it can't be replayed.
         cookieStore.delete("login_code");
 
-        /* ---- Audit: new-user registration -------------------------- */
+        /* ---- Audit: new-user registration (ONLY SUCCESS) ------------ */
         let signupDescription: string;
         if (usingSecretCode) {
           signupDescription =
@@ -277,6 +268,7 @@ const authOptions: NextAuthOptions = {
         return true;
       } catch (error: unknown) {
         console.error("SignIn error:", error);
+        // NO audit log here — DB errors are already logged to stderr.
         return false;
       }
     },
