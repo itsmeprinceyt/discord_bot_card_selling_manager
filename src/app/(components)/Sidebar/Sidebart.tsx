@@ -66,6 +66,7 @@ function Avatar({
 
   return (
     <Image
+      loading="eager"
       src={image}
       alt={name}
       width={size}

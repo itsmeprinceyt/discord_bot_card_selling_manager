@@ -5,8 +5,11 @@ import { getServerSession } from "next-auth";
 import { Toaster } from "react-hot-toast";
 import "./globals.css";
 import { authOptions } from "./api/auth/[...nextauth]/route";
-import AppShell, { type SessionUser } from "./(components)/AppShell/AppShell";
+
 import HomePageHeartbeat from "../hooks/Heartbeat.hook";
+import { SessionUserClient } from "../types/User/JWT.types";
+import AppShell from "./(components)/AppShell/AppShell";
+import CustomLoader from "./(components)/CustomLoader";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -76,7 +79,7 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const session = await getServerSession(authOptions);
 
-  const user: SessionUser | null = session?.user
+  const user: SessionUserClient | null = session?.user
     ? {
         name: session.user.name ?? "",
         email: session.user.email ?? "",
@@ -92,7 +95,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full">
         <AppShell user={user}>
-          <Suspense fallback={<div>Loading...</div>}>
+          <Suspense fallback={<CustomLoader label="Loading ..." />}>
             <HomePageHeartbeat />
             {children}
           </Suspense>
