@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
+import { getServerSession } from "next-auth";
 import { Toaster } from "react-hot-toast";
 import "./globals.css";
-import Navbar from "./(components)/Navbar/Navbar";
+import { authOptions } from "./api/auth/[...nextauth]/route";
+import AppShell, { type SessionUser } from "./(components)/AppShell/AppShell";
 import HomePageHeartbeat from "../hooks/Heartbeat.hook";
 
 const geistSans = Geist({
@@ -55,9 +57,7 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
-  alternates: {
-    canonical: "/",
-  },
+  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     locale: "en_US",
@@ -73,45 +73,51 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const session = await getServerSession(authOptions);
+
+  const user: SessionUser | null = session?.user
+    ? {
+        name: session.user.name ?? "",
+        email: session.user.email ?? "",
+        image: session.user.image ?? null,
+        is_admin: session.user.is_admin ?? false,
+      }
+    : null;
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <Suspense fallback={<div>Loading...</div>}>
-          <Navbar />
-          <HomePageHeartbeat />
-          {children}
+      <body className="min-h-full">
+        <AppShell user={user}>
+          <Suspense fallback={<div>Loading...</div>}>
+            <HomePageHeartbeat />
+            {children}
+          </Suspense>
+        </AppShell>
 
-          <Toaster
-            position="bottom-right"
-            toastOptions={{
-              duration: 3000,
-              style: {
-                background: "#171717",
-                color: "#f5f5f5",
-                border: "1px solid #262626",
-                fontSize: "14px",
-                borderRadius: "10px",
-                padding: "10px 14px",
-              },
-              success: {
-                iconTheme: {
-                  primary: "#10b981",
-                  secondary: "#171717",
-                },
-              },
-              error: {
-                iconTheme: {
-                  primary: "#ef4444",
-                  secondary: "#171717",
-                },
-              },
-            }}
-          />
-        </Suspense>
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            duration: 3000,
+            style: {
+              background: "#171717",
+              color: "#f5f5f5",
+              border: "1px solid #262626",
+              fontSize: "14px",
+              borderRadius: "10px",
+              padding: "10px 14px",
+            },
+            success: {
+              iconTheme: { primary: "#10b981", secondary: "#171717" },
+            },
+            error: {
+              iconTheme: { primary: "#ef4444", secondary: "#171717" },
+            },
+          }}
+        />
       </body>
     </html>
   );

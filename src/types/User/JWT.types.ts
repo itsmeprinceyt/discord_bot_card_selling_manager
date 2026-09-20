@@ -8,3 +8,10 @@ export interface MyJWT extends JWT, RowDataPacket {
   image?: string | null;
   is_admin?: boolean;
 }
+
+export interface SessionUserClient {
+  name: string;
+  email: string;
+  image: string | null;
+  is_admin: boolean;
+}
