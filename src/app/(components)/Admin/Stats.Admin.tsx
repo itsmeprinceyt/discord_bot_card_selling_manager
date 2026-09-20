@@ -47,8 +47,8 @@ export default function AdminStats() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[0, 1, 2].map((i) => (
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {[0, 1].map((i) => (
           <div
             key={i}
             className="flex h-26 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-900"

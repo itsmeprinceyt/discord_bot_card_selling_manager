@@ -8,8 +8,8 @@ import { cookies } from "next/headers";
 import { initServer, db } from "../../../../lib/Database/main.db";
 
 import type { Pool } from "mysql2/promise";
-import { UserRow } from "../../../../types/User/UserRow.type";
-import { MyJWT } from "../../../../types/User/JWT.type";
+import { UserRow } from "../../../../types/User/UserRow.types";
+import { MyJWT } from "../../../../types/User/JWT.types";
 import { getCurrentDateTime } from "../../../../utils/ValueFetcher/getDateTime.util";
 import { generateULID } from "../../../../utils/generateULID.util";
 import {
