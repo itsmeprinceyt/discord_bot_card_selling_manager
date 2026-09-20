@@ -17,7 +17,7 @@ export default async function AdminPage() {
       <div className="mx-auto w-full max-w-3xl">
         <div className="mb-8 flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900">
-            <ShieldCheck size={20} className="text-emerald-400" />
+            <ShieldCheck size={20} className="" />
           </div>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
