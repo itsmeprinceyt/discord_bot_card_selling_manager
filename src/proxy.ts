@@ -1,39 +1,54 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { MyJWT } from "./types/User/JWT.type";
+
+import { MyJWT } from "./types/User/JWT.types";
 import { rateLimitMiddleware } from "./lib/Redis/rateLimiter.redis";
 
-// ─── API Groups ──────────────────────────────────────────────────────────────
-// Every /api/* route MUST live under one of these prefixes.
-// Anything else under /api/* is denied by default (typo protection).
+/* ─────────────────────────────────────────────────────────────────────────────
+ * API groups
+ *
+ * Every /api/* route MUST live under one of these prefixes.
+ * Anything else under /api/* is denied by default (typo protection).
+ * ────────────────────────────────────────────────────────────────────────────*/
 
-const API_AUTH = "/api/auth"; // public (NextAuth + unlock-style endpoints)
+const API_AUTH = "/api/auth"; // public — NextAuth + unlock-style endpoints
+const API_PUBLIC = "/api/public"; // public — heartbeat, webhooks, probes
 const API_ADMIN = "/api/admin"; // admin only
-const API_DASHBOARD = "/api/dashboard"; // any logged-in user
+const API_DASHBOARD = "/api/dashboard"; // any authenticated user
 
-// ─── Page Groups ─────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Page groups
+ * ────────────────────────────────────────────────────────────────────────────*/
 
 const PAGES_PUBLIC = ["/", "/login"] as const;
 const PAGES_ADMIN = ["/admin"] as const;
 const PAGES_USER = ["/dashboard"] as const;
 
-// ─── Rate Limit Rules ────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Rate limiting
+ *
+ * Auth routes are excluded — NextAuth manages its own traffic.
+ * Every other /api/* route falls through to the RateLimiter defaults unless
+ * an override below matches it first.
+ * ────────────────────────────────────────────────────────────────────────────*/
 
-/** Auth routes: excluded — NextAuth manages its own traffic. */
 const RATE_LIMIT_EXCLUDED_PREFIXES = [API_AUTH] as const;
 
-/**
- * Per-group rate-limit overrides.
- * `auth` is excluded above; only admin + dashboard get rules.
- * Falls back to RateLimiter defaults for anything unmatched.
- */
-const RATE_LIMIT_RULES: Array<{
+interface RateLimitRule {
   prefix: string;
   maxRequests: number;
   windowMs: number;
   blockTimeMs: number;
-}> = [
+}
+
+const RATE_LIMIT_RULES: readonly RateLimitRule[] = [
+  {
+    prefix: API_PUBLIC,
+    maxRequests: 60,
+    windowMs: 60_000,
+    blockTimeMs: 60_000,
+  },
   {
     prefix: API_ADMIN,
     maxRequests: 100,
@@ -48,17 +63,11 @@ const RATE_LIMIT_RULES: Array<{
   },
 ];
 
-// ─── Route Classification ────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Route classification
+ * ────────────────────────────────────────────────────────────────────────────*/
 
-type ApiGroup = "auth" | "admin" | "dashboard" | "unknown";
-
-function apiGroup(path: string): ApiGroup {
-  if (path === API_AUTH || path.startsWith(API_AUTH + "/")) return "auth";
-  if (path === API_ADMIN || path.startsWith(API_ADMIN + "/")) return "admin";
-  if (path === API_DASHBOARD || path.startsWith(API_DASHBOARD + "/"))
-    return "dashboard";
-  return "unknown";
-}
+type ApiGroup = "auth" | "public" | "admin" | "dashboard" | "unknown";
 
 function isApi(path: string): boolean {
   return path.startsWith("/api/");
@@ -68,16 +77,26 @@ function matchesPrefix(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((p) => path === p || path.startsWith(p + "/"));
 }
 
+function apiGroup(path: string): ApiGroup {
+  if (matchesPrefix(path, [API_AUTH])) return "auth";
+  if (matchesPrefix(path, [API_PUBLIC])) return "public";
+  if (matchesPrefix(path, [API_ADMIN])) return "admin";
+  if (matchesPrefix(path, [API_DASHBOARD])) return "dashboard";
+  return "unknown";
+}
+
 function shouldRateLimit(path: string): boolean {
   if (!isApi(path)) return false;
   return !matchesPrefix(path, RATE_LIMIT_EXCLUDED_PREFIXES);
 }
 
-function rateLimitOverrideFor(path: string) {
+function rateLimitOverrideFor(path: string): RateLimitRule | undefined {
   return RATE_LIMIT_RULES.find((r) => matchesPrefix(path, [r.prefix]));
 }
 
-// ─── Response Helpers ────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Response helpers
+ * ────────────────────────────────────────────────────────────────────────────*/
 
 function respondUnauthorized(req: NextRequest, path: string): NextResponse {
   if (isApi(path)) {
@@ -86,6 +105,7 @@ function respondUnauthorized(req: NextRequest, path: string): NextResponse {
       { status: 401 },
     );
   }
+
   const url = req.nextUrl.clone();
   url.pathname = "/login";
   url.searchParams.set(
@@ -99,12 +119,15 @@ function respondForbidden(req: NextRequest, path: string): NextResponse {
   if (isApi(path)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
+
   const url = req.nextUrl.clone();
   url.pathname = "/";
   return NextResponse.redirect(url);
 }
 
-// ─── API Handler ─────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
+ * API dispatcher
+ * ────────────────────────────────────────────────────────────────────────────*/
 
 function handleApi(
   req: NextRequest,
@@ -113,11 +136,10 @@ function handleApi(
   isAdmin: boolean,
   user: MyJWT | null,
 ): NextResponse {
-  const group = apiGroup(path);
-
-  switch (group) {
+  switch (apiGroup(path)) {
     case "auth":
-      // Public. (NextAuth, unlock, etc.)
+    case "public":
+      // No auth required.
       return NextResponse.next();
 
     case "admin":
@@ -140,12 +162,14 @@ function handleApi(
   }
 }
 
-// ─── Middleware ──────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Middleware
+ * ────────────────────────────────────────────────────────────────────────────*/
 
 export async function proxy(req: NextRequest): Promise<NextResponse> {
   const path = req.nextUrl.pathname;
 
-  /* ── 1. Rate limit (API only, auth excluded) ─────────────────────────── */
+  // 1. Rate limit — API only, auth excluded.
   if (shouldRateLimit(path)) {
     const rl = await rateLimitMiddleware(req, rateLimitOverrideFor(path));
     if (rl) {
@@ -156,7 +180,7 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  /* ── 2. Session ──────────────────────────────────────────────────────── */
+  // 2. Session.
   const token = await getToken({
     req,
     secret: process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET,
@@ -165,31 +189,36 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   const isLoggedIn = Boolean(user);
   const isAdmin = user?.is_admin === true;
 
-  /* ── 3. Login page special case ─────────────────────────────────────── */
+  // 3. Login page — bounce already-authenticated users to their home.
   if (path === "/login") {
     if (!isLoggedIn) return NextResponse.next();
+
     const url = req.nextUrl.clone();
     url.pathname = isAdmin ? "/admin" : "/dashboard";
     return NextResponse.redirect(url);
   }
 
-  /* ── 4. API routing ──────────────────────────────────────────────────── */
+  // 4. API routing.
   if (isApi(path)) {
     return handleApi(req, path, isLoggedIn, isAdmin, user);
   }
 
-  /* ── 5. Page routing ─────────────────────────────────────────────────── */
+  // 5. Page routing.
   if (matchesPrefix(path, PAGES_PUBLIC)) return NextResponse.next();
   if (!isLoggedIn) return respondUnauthorized(req, path);
+
   if (matchesPrefix(path, PAGES_ADMIN) && !isAdmin) {
     console.warn(`Admin page denied → ${user?.email} → ${path}`);
     return respondForbidden(req, path);
   }
-  // USER_PAGES + any other page → allowed if logged in
+
+  // PAGES_USER + any other authenticated page → allowed.
   return NextResponse.next();
 }
 
-// ─── Matcher ─────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Matcher — skip static assets.
+ * ────────────────────────────────────────────────────────────────────────────*/
 
 export const config = {
   matcher: [

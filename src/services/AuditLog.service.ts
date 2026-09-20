@@ -4,7 +4,7 @@ import {
   DbExecutor,
   LogAuditInput,
   LogAuditOptions,
-} from "../types/AuditLog/auditLog.type";
+} from "../types/AuditLog/auditLog.types";
 
 export class AuditLogService {
   async log(

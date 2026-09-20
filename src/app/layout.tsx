@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import "./globals.css";
 import Navbar from "./(components)/Navbar/Navbar";
+import HomePageHeartbeat from "../hooks/Heartbeat.hook";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -81,6 +82,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         <Suspense fallback={<div>Loading...</div>}>
           <Navbar />
+          <HomePageHeartbeat />
           {children}
 
           <Toaster
