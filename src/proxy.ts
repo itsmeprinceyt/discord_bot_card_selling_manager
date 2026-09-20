@@ -21,7 +21,7 @@ const API_DASHBOARD = "/api/dashboard"; // any authenticated user
  * Page groups
  * ────────────────────────────────────────────────────────────────────────────*/
 
-const PAGES_PUBLIC = ["/", "/login"] as const;
+const PAGES_PUBLIC = ["/", "/login", "/policy"] as const;
 const PAGES_ADMIN = ["/admin"] as const;
 const PAGES_USER = ["/dashboard"] as const;
 
