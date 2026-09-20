@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   LogOut,
   ChevronDown,
+  Home,
 } from "lucide-react";
 
 interface NavPillProps {
@@ -23,7 +24,6 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function onClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -34,7 +34,6 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  // Close dropdown on route change
   useEffect(() => {
     const load = () => {
       setOpen(false);
@@ -45,55 +44,51 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
   const initials = name.charAt(0).toUpperCase();
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+    <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
       <nav className="pointer-events-auto flex items-center gap-1 rounded-full border border-neutral-800 bg-neutral-900/70 backdrop-blur-sm px-1.5 py-1.5 shadow-2xl shadow-black/40">
-        {/* Brand */}
         <Link
           href="/"
-          className="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800/60 hover:text-neutral-100"
+          aria-label="Home"
+          className="flex items-center justify-center rounded-full p-2 text-neutral-400 transition hover:bg-neutral-800/60 hover:text-neutral-100 cursor-pointer"
         >
-          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="hidden sm:inline">Card Manager</span>
+          <Home size={14} />
         </Link>
 
         <span className="h-4 w-px bg-neutral-800" />
 
-        {/* Dashboard */}
         <Link
           href="/dashboard"
-          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
             pathname.startsWith("/dashboard")
               ? "bg-neutral-800 text-neutral-100"
               : "text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200"
           }`}
         >
-          <LayoutDashboard className="h-3.5 w-3.5" />
+          <LayoutDashboard size={14} />
           <span className="hidden sm:inline">Dashboard</span>
         </Link>
 
-        {/* Admin (only for admins) */}
         {isAdmin && (
           <Link
             href="/admin"
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
               pathname.startsWith("/admin")
                 ? "bg-neutral-800 text-neutral-100"
                 : "text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200"
             }`}
           >
-            <ShieldCheck className="h-3.5 w-3.5" />
+            <ShieldCheck size={14} />
             <span className="hidden sm:inline">Admin</span>
           </Link>
         )}
 
         <span className="h-4 w-px bg-neutral-800" />
 
-        {/* User menu */}
         <div className="relative" ref={menuRef}>
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded-full p-0.5 pr-2 transition hover:bg-neutral-800/60"
+            className="flex items-center gap-1.5 rounded-full p-0.5 pr-2 transition hover:bg-neutral-800/60 cursor-pointer"
             aria-haspopup="menu"
             aria-expanded={open}
           >
@@ -110,28 +105,29 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
               </span>
             )}
             <ChevronDown
-              className={`h-3 w-3 text-neutral-500 transition-transform ${
+              size={12}
+              className={`text-neutral-500 transition-transform ${
                 open ? "rotate-180" : ""
               }`}
             />
           </button>
 
           {open && (
-            <div className="absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/50">
+            <div className="fixed inset-x-4 top-16 overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl shadow-black/50 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-64">
               <div className="border-b border-neutral-800 px-4 py-3">
                 <p className="truncate text-sm font-medium text-neutral-100">
                   {name}
                 </p>
-                <p className="mt-0.5 truncate text-xs text-neutral-500">
+                <p className="mt-0.5 text-xs text-neutral-500 break-all">
                   {email}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => signOut({ callbackUrl: "/login" })}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-neutral-300 transition hover:bg-neutral-800 hover:text-red-400"
+                onClick={() => signOut({ callbackUrl: "/" })}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-neutral-300 transition hover:bg-neutral-800 hover:text-red-400 cursor-pointer"
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut size={16} />
                 Sign out
               </button>
             </div>
