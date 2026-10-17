@@ -63,7 +63,7 @@ async function logUnusedIndexes(connection: Pool) {
     if (unusedIndexes.length > 0) {
       console.warn("[INDEX] Unused indexes detected:");
       unusedIndexes.forEach((row) => {
-        console.warn(`  - ${row.table_name}.${row.index_name} → not used`);
+        console.warn(`  - ${row.table_name}.${row.index_name} -> not used`);
       });
     } else {
       console.log("[INDEX] No unused indexes detected.");
@@ -102,9 +102,9 @@ export async function setupIndexes(connection: Pool, isProduction: boolean) {
     for (const dropStmt of dropIndexStatements) {
       try {
         await connection.query(dropStmt);
-        console.log(`[INDEX - DROP] ⚠️ ${dropStmt}`);
+        console.log(`[INDEX - DROP] </> ${dropStmt}`);
       } catch (err: any) {
-        console.warn(`[INDEX - DROP] ❌ [ ${dropStmt} ] :`, err.message || err);
+        console.warn(`[INDEX - DROP] [ ${dropStmt} ] :`, err.message || err);
       }
     }
   }
@@ -122,7 +122,7 @@ export async function setupIndexes(connection: Pool, isProduction: boolean) {
       if (await indexExists(connection, tableName, indexName)) {
         skippedCount++;
         console.log(
-          `[INDEX - SKIP] Index ${indexName} already exists on ${tableName}.`,
+          `[INDEX - SKIP] ➤ Index ${indexName} already exists on ${tableName}.`,
         );
         continue;
       }
@@ -131,14 +131,14 @@ export async function setupIndexes(connection: Pool, isProduction: boolean) {
     try {
       await connection.query(createStmt);
       createdCount++;
-      console.log(`[INDEX] ✅ ${createStmt}`);
+      console.log(`[INDEX] >_ ${createStmt}`);
     } catch (err: any) {
-      console.warn(`[INDEX] ⚠️ [ ${createStmt} ] :`, err.message || err);
+      console.warn(`[INDEX] [ ${createStmt} ] :`, err.message || err);
     }
   }
 
   if (isProduction && createdCount === 0 && skippedCount > 0) {
-    console.log("[INDEX - SKIP] All indexes already exist in production.");
+    console.log("[INDEX - SKIP] ➤ All indexes already exist in production.");
   }
 
   await logUnusedIndexes(connection);

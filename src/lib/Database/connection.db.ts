@@ -35,6 +35,8 @@ const dbPort = isProduction
  * - Terminate the application if the MySQL connection fails.
  */
 export async function ensureDatabaseExists() {
+  console.log("[DB - CHECKING] Verifying database availability");
+
   try {
     const connection = await mysql.createConnection({
       host: dbHost,
@@ -47,14 +49,14 @@ export async function ensureDatabaseExists() {
 
     if ((rows as any[]).length === 0) {
       await connection.query(`CREATE DATABASE \`${dbName}\``);
-      console.log(`[READY] ✅ Database Created : '${dbName}'`);
+      console.log(`[DB - CREATE] >_ Database '${dbName}' created`);
     } else {
-      console.log(`[READY] ✅ Database Already Exists : '${dbName}'`);
+      console.log(`[DB - SKIP] ➤ Database '${dbName}' already exists`);
     }
 
     await connection.end();
   } catch (err) {
-    console.error(`[FAILED] Failed to connect to MySQL :`, err);
+    console.error(`[DB - FAILED] Failed to connect to MySQL :`, err);
     process.exit(1);
   }
 }
@@ -67,7 +69,7 @@ export async function ensureDatabaseExists() {
  *   - `connectionLimit: 10` (max simultaneous connections)
  *   - `queueLimit: 0` (no limit on queued connections)
  *   - `multipleStatements: true` (allow multiple SQL statements per query) for migrations
- *   - Terminate the application if the MySQL connection fails.
+ * - Terminate the application if the MySQL connection fails.
  */
 export function createPool() {
   try {
@@ -83,7 +85,7 @@ export function createPool() {
       multipleStatements: true,
     });
   } catch (err: unknown) {
-    console.error(`[FAILED] Connection to database failed : `, err);
+    console.error(`[DB - FAILED] Connection to database failed : `, err);
     process.exit(1);
   }
 }
