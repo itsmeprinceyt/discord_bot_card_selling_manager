@@ -17,11 +17,12 @@ CREATE TABLE IF NOT EXISTS invite_code (code VARCHAR(255) NOT NULL PRIMARY KEY);
 -- ==========================================================
 CREATE TABLE IF NOT EXISTS accounts (
     id VARCHAR(40) NOT NULL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
     user_id VARCHAR(40) NOT NULL,
     game_type ENUM('SOFI', 'KARUTA') NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_accounts_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_accounts_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_accounts_user_name (user_id, name)
 );
 -- ==========================================================
 -- BUYERS  (belong to an account)

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import Sidebar from "../Sidebar/Sidebart";
+import Sidebar from "../Sidebar/Sidebar";
 import { SessionUserClient } from "../../../types/User/JWT.types";
 
 export default function AppShell({
@@ -15,6 +15,8 @@ export default function AppShell({
   const [expanded, setExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const pathname = usePathname();
+
+  const isHome = pathname === "/";
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1023px)");
@@ -32,7 +34,7 @@ export default function AppShell({
     load();
   }, [pathname, isMobile]);
 
-  if (!user) return <>{children}</>;
+  if (!user || isHome) return <>{children}</>;
 
   const overlayOpen = isMobile && expanded;
 

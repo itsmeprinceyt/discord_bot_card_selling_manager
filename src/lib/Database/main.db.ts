@@ -1,3 +1,4 @@
+import { Pool } from "mysql2/promise";
 import { getProduction } from "../../utils/ValueFetcher/getProduction.util";
 import { getDbPool, initializeDatabase } from "./init.db";
 
@@ -11,11 +12,12 @@ let initializedPromise: Promise<void> | null = null;
 export async function initServer() {
   if (!initializedPromise) {
     initializedPromise = (async () => {
+      console.log("[SERVER - CHECKING] Initializing database connection");
       await initializeDatabase();
       const isProduction: boolean = getProduction();
-      console.log("[READY] ✅ Database initialized");
+      console.log(`[SERVER - READY] >_ Database initialized`);
       console.log(
-        `[ENVIRONMENT] ${isProduction ? "✅ Production" : "👩‍💻 Development"}`,
+        `[SERVER - ENV] ➤ Running in ${isProduction ? "production" : "development"} mode`,
       );
     })();
   }
@@ -29,4 +31,13 @@ export async function initServer() {
  */
 export function db() {
   return getDbPool();
+}
+
+export async function getPool(): Promise<Pool> {
+  let pool: Pool | null = null;
+  if (!pool) {
+    await initServer();
+    pool = db();
+  }
+  return pool;
 }

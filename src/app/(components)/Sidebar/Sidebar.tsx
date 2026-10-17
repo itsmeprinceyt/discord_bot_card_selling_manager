@@ -15,6 +15,13 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  Activity,
+  PlusCircle,
+  Upload,
+  Users,
+  CreditCard,
+  CheckCircle,
+  FileSpreadsheet,
 } from "lucide-react";
 import { SessionUserClient } from "../../../types/User/JWT.types";
 
@@ -25,9 +32,21 @@ interface NavLink {
   exact?: boolean;
 }
 
+// Basic Links
 const USER_LINKS: NavLink[] = [
   { href: "/", label: "Home", icon: Home, exact: true },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+];
+
+// Extra Links jo account ke andar dikhenge
+const ACCOUNT_LINKS: NavLink[] = [
+  { href: "/activity", label: "Activity", icon: Activity, exact: true },
+  { href: "/add-order", label: "Add Order", icon: PlusCircle },
+  { href: "/bulk-import", label: "Bulk Import", icon: Upload },
+  { href: "/buyers", label: "Buyers", icon: Users },
+  { href: "/cards", label: "Cards", icon: CreditCard },
+  { href: "/completed", label: "Completed", icon: CheckCircle },
+  { href: "/trade-sheet", label: "Trade Sheet", icon: FileSpreadsheet },
 ];
 
 const ADMIN_LINKS: NavLink[] = [
@@ -120,7 +139,7 @@ function SectionLabel({
   expanded: boolean;
 }) {
   return (
-    <div className="relative flex h-6 items-center overflow-hidden px-2.5">
+    <div className="relative flex h-6 items-center overflow-hidden px-2.5 mt-2">
       <span
         className={`whitespace-nowrap text-[10px] font-semibold uppercase tracking-wider text-neutral-600 transition-opacity duration-200 ${
           expanded ? "opacity-100" : "opacity-0"
@@ -149,12 +168,33 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
 
+  // --- LOGIC YAHAN HAI ---
+  // Check karega ki URL /dashboard/acc_ se start ho raha hai ya nahi
+  const isAccountPage = pathname.startsWith("/dashboard/acc_");
+
+  // Agar account page hai, toh URL se Account ID nikalega (e.g., /dashboard/acc_123 -> acc_123)
+  const accountId = isAccountPage ? pathname.split("/")[2] : "";
+
   function isActive(link: NavLink): boolean {
     if (link.exact) return pathname === link.href;
     return pathname === link.href || pathname.startsWith(link.href + "/");
   }
 
   const showSections = user.is_admin;
+
+  // Agar Account page par hai, toh naye links add karega purane dashboard link ke baad
+  const dynamicUserLinks = isAccountPage
+    ? [
+        USER_LINKS[0], // Home
+        USER_LINKS[1], // Dashboard (/dashboard)
+        ...ACCOUNT_LINKS.map((link) => ({
+          ...link,
+          // Href ko dynamically account ID ke sath jod dega
+          // Example: /activity -> /dashboard/acc_123/activity
+          href: `/dashboard/${accountId}${link.href}`,
+        })),
+      ]
+    : USER_LINKS;
 
   return (
     <aside
@@ -196,7 +236,7 @@ export default function Sidebar({
             ))}
 
             <SectionLabel label="User" expanded={expanded} />
-            {USER_LINKS.map((link) => (
+            {dynamicUserLinks.map((link) => (
               <NavItem
                 key={link.href}
                 link={link}
@@ -206,7 +246,7 @@ export default function Sidebar({
             ))}
           </>
         ) : (
-          USER_LINKS.map((link) => (
+          dynamicUserLinks.map((link) => (
             <NavItem
               key={link.href}
               link={link}
