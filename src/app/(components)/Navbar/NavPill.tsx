@@ -11,28 +11,12 @@ import {
   ChevronDown,
   Home,
 } from "lucide-react";
-
-interface NavPillProps {
-  name: string;
-  email: string;
-  image: string | null;
-  isAdmin: boolean;
-}
+import { NavPillProps } from "../../../types/NavbarPills.types";
 
 export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
-
-  useEffect(() => {
-    function onClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, []);
 
   useEffect(() => {
     const load = () => {
@@ -41,15 +25,21 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
     load();
   }, [pathname]);
 
+  const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (menuRef.current && !menuRef.current.contains(e.relatedTarget as Node)) {
+      setOpen(false);
+    }
+  };
+
   const initials = name.charAt(0).toUpperCase();
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
-      <nav className="pointer-events-auto flex items-center gap-1 rounded-full border border-neutral-800 bg-neutral-900/70 backdrop-blur-sm px-1.5 py-1.5 shadow-2xl shadow-black/40">
+      <nav className="pointer-events-auto flex items-center gap-1 rounded-full border border-neutral-800 bg-neutral-900/70 px-1.5 py-1.5 shadow-2xl shadow-black/40 backdrop-blur">
         <Link
           href="/"
           aria-label="Home"
-          className="flex items-center justify-center rounded-full p-2 text-neutral-400 transition hover:bg-neutral-800/60 hover:text-neutral-100 cursor-pointer"
+          className="flex cursor-pointer items-center justify-center rounded-full p-2 text-neutral-400 transition hover:bg-neutral-800/60 hover:text-neutral-100"
         >
           <Home size={14} />
         </Link>
@@ -58,7 +48,7 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
 
         <Link
           href="/dashboard"
-          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+          className={`flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
             pathname.startsWith("/dashboard")
               ? "bg-neutral-800 text-neutral-100"
               : "text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200"
@@ -71,7 +61,7 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
         {isAdmin && (
           <Link
             href="/admin"
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition cursor-pointer ${
+            className={`flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
               pathname.startsWith("/admin")
                 ? "bg-neutral-800 text-neutral-100"
                 : "text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200"
@@ -84,11 +74,11 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
 
         <span className="h-4 w-px bg-neutral-800" />
 
-        <div className="relative" ref={menuRef}>
+        <div className="relative" ref={menuRef} onBlur={handleBlur}>
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-1.5 rounded-full p-0.5 pr-2 transition hover:bg-neutral-800/60 cursor-pointer"
+            className="flex cursor-pointer items-center gap-1.5 rounded-full p-0.5 pr-2 transition hover:bg-neutral-800/60"
             aria-haspopup="menu"
             aria-expanded={open}
           >
@@ -118,14 +108,14 @@ export default function NavPill({ name, email, image, isAdmin }: NavPillProps) {
                 <p className="truncate text-sm font-medium text-neutral-100">
                   {name}
                 </p>
-                <p className="mt-0.5 text-xs text-neutral-500 break-all">
+                <p className="mt-0.5 break-all text-xs text-neutral-500">
                   {email}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => signOut({ callbackUrl: "/" })}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-neutral-300 transition hover:bg-neutral-800 hover:text-red-400 cursor-pointer"
+                className="flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-sm text-neutral-300 transition hover:bg-neutral-800 hover:text-red-400"
               >
                 <LogOut size={16} />
                 Sign out

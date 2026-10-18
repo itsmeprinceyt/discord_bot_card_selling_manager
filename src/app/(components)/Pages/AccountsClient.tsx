@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import axios, { AxiosError } from "axios";
+import axios from "axios";
 import {
   ArrowUpDown,
   ChevronRight,
@@ -17,20 +17,7 @@ import {
 import ConfirmDialog from "../ConfirmDialog";
 import { GAME_LABEL, GameType } from "../../../utils/Dashboard/accountLabels";
 import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
-
-interface AccountItem {
-  id: string;
-  name: string;
-  game_type: GameType;
-  pending_count: number;
-}
-
-type SortOption = "az" | "pending";
-
-interface ApiErrorBody {
-  ok: false;
-  error: string;
-}
+import { AccountItem, SortOption } from "../../../types/AccountsClient.types";
 
 const SORT_LABEL: Record<SortOption, string> = {
   az: "Name (A–Z)",
@@ -97,7 +84,10 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
   }, [router]);
 
   useEffect(() => {
-    fetchAccounts();
+    const load = () => {
+      fetchAccounts();
+    };
+    load();
   }, [fetchAccounts]);
 
   /* ------------------------------- create ------------------------------- */
@@ -330,7 +320,7 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
       {/* Create modal */}
       {showCreate && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
           onClick={() => !creating && setShowCreate(false)}
         >
           <div
@@ -395,7 +385,7 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
       {/* Rename modal */}
       {renameTarget && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
           onClick={() => !renaming && setRenameTarget(null)}
         >
           <div

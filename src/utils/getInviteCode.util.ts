@@ -1,5 +1,5 @@
 import type { RowDataPacket } from "mysql2";
-import { db, initServer } from "../lib/Database/main.db";
+import { getPool } from "../lib/Database/main.db";
 import { generateULID } from "./generateULID.util";
 
 interface InviteCodeRow extends RowDataPacket {
@@ -49,8 +49,7 @@ export type InviteCodeMatch = "secret" | "db" | null;
  * ```
  */
 export async function matchInviteCode(input: string): Promise<InviteCodeMatch> {
-  await initServer();
-  const pool = db();
+  const pool = await getPool();
 
   // ---- Priority 1: env secret ----
   const secret = process.env.SECRET_LOGIN_CODE;
@@ -112,8 +111,7 @@ export async function regenerateInviteCode(): Promise<string | null> {
   });
 
   try {
-    await initServer();
-    const pool = db();
+    const pool = await getPool();
     const conn = await pool.getConnection();
 
     try {

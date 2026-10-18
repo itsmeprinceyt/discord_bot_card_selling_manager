@@ -2,13 +2,18 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../auth/[...nextauth]/route";
-import { db, initServer } from "../../../../lib/Database/main.db";
+import { getPool } from "../../../../lib/Database/main.db";
 import { generateULID } from "../../../../utils/generateULID.util";
+
+import {
+  GameType,
+  GAME_LABEL,
+} from "../../../../utils/Dashboard/accountLabels";
 
 interface AccountRow extends RowDataPacket {
   id: string;
   name: string;
-  game_type: "SOFI" | "KARUTA";
+  game_type: GameType;
   created_at: string;
   pending_count: number;
 }
@@ -17,13 +22,9 @@ interface IdRow extends RowDataPacket {
   id: string;
 }
 
-const GAME_TYPES = ["SOFI", "KARUTA"] as const;
-type GameType = (typeof GAME_TYPES)[number];
-
 /* --------------------------------- GET --------------------------------- */
 export async function GET() {
   try {
-    await initServer();
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
     if (!userId) {
@@ -33,7 +34,7 @@ export async function GET() {
       );
     }
 
-    const pool = db();
+    const pool = await getPool();
     const [rows] = await pool.execute<AccountRow[]>(
       `SELECT a.id,
               a.name,
@@ -74,7 +75,6 @@ export async function GET() {
 /* --------------------------------- POST -------------------------------- */
 export async function POST(req: Request) {
   try {
-    await initServer();
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
     if (!userId) {
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const name = String(body?.name ?? "").trim();
-    const gameType = String(body?.game_type ?? "");
+    const gameType = String(body?.game_type ?? "").trim() as GameType;
 
     if (!name) {
       return NextResponse.json(
@@ -100,14 +100,16 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-    if (!GAME_TYPES.includes(gameType as GameType)) {
+
+    // YAHAN CHANGE HUA HAI: GAME_LABEL ki keys ko valid game types maan kar check kar rahe hain
+    if (!Object.keys(GAME_LABEL).includes(gameType)) {
       return NextResponse.json(
         { ok: false, error: "Invalid game type" },
         { status: 400 },
       );
     }
 
-    const pool = db();
+    const pool = await getPool();
 
     // Scope uniqueness to THIS user only — other users can share names.
     const [existing] = await pool.execute<IdRow[]>(

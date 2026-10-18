@@ -22,23 +22,15 @@ import {
   CreditCard,
   CheckCircle,
   FileSpreadsheet,
+  FolderKanban,
 } from "lucide-react";
 import { SessionUserClient } from "../../../types/User/JWT.types";
+import { NavLink } from "../../../types/NavLinks.types";
 
-interface NavLink {
-  href: string;
-  label: string;
-  icon: React.ElementType;
-  exact?: boolean;
-}
-
-// Basic Links
 const USER_LINKS: NavLink[] = [
   { href: "/", label: "Home", icon: Home, exact: true },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
 ];
 
-// Extra Links jo account ke andar dikhenge
 const ACCOUNT_LINKS: NavLink[] = [
   { href: "/activity", label: "Activity", icon: Activity, exact: true },
   { href: "/add-order", label: "Add Order", icon: PlusCircle },
@@ -167,13 +159,9 @@ export default function Sidebar({
   onToggle: () => void;
 }) {
   const pathname = usePathname();
-
-  // --- LOGIC YAHAN HAI ---
-  // Check karega ki URL /dashboard/acc_ se start ho raha hai ya nahi
   const isAccountPage = pathname.startsWith("/dashboard/acc_");
-
-  // Agar account page hai, toh URL se Account ID nikalega (e.g., /dashboard/acc_123 -> acc_123)
   const accountId = isAccountPage ? pathname.split("/")[2] : "";
+  const isAccountDashboard = pathname === `/dashboard/${accountId}`;
 
   function isActive(link: NavLink): boolean {
     if (link.exact) return pathname === link.href;
@@ -182,19 +170,12 @@ export default function Sidebar({
 
   const showSections = user.is_admin;
 
-  // Agar Account page par hai, toh naye links add karega purane dashboard link ke baad
-  const dynamicUserLinks = isAccountPage
-    ? [
-        USER_LINKS[0], // Home
-        USER_LINKS[1], // Dashboard (/dashboard)
-        ...ACCOUNT_LINKS.map((link) => ({
-          ...link,
-          // Href ko dynamically account ID ke sath jod dega
-          // Example: /activity -> /dashboard/acc_123/activity
-          href: `/dashboard/${accountId}${link.href}`,
-        })),
-      ]
-    : USER_LINKS;
+  const dynamicAccountLinks = isAccountPage
+    ? ACCOUNT_LINKS.map((link) => ({
+        ...link,
+        href: `/dashboard/${accountId}${link.href}`,
+      }))
+    : [];
 
   return (
     <aside
@@ -223,7 +204,7 @@ export default function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden p-2">
-        {showSections ? (
+        {showSections && (
           <>
             <SectionLabel label="Admin" expanded={expanded} />
             {ADMIN_LINKS.map((link) => (
@@ -234,9 +215,51 @@ export default function Sidebar({
                 active={isActive(link)}
               />
             ))}
-
             <SectionLabel label="User" expanded={expanded} />
-            {dynamicUserLinks.map((link) => (
+          </>
+        )}
+
+        {/* Home Link (Always) */}
+        {USER_LINKS.map((link) => (
+          <NavItem
+            key={link.href}
+            link={link}
+            expanded={expanded}
+            active={isActive(link)}
+          />
+        ))}
+
+        {/* Dashboard Link */}
+        <NavItem
+          link={{
+            href: isAccountPage ? `/dashboard/${accountId}` : "/dashboard",
+            label: "Dashboard",
+            icon: LayoutDashboard,
+          }}
+          expanded={expanded}
+          active={
+            isAccountPage ? isAccountDashboard : pathname === "/dashboard"
+          }
+        />
+
+        {/* Select Account Link (Only if inside an account) */}
+        {isAccountPage && (
+          <NavItem
+            link={{
+              href: "/dashboard",
+              label: "Select Account",
+              icon: FolderKanban,
+            }}
+            expanded={expanded}
+            active={false} // Never active because clicking it navigates away
+          />
+        )}
+
+        {/* Account Specific Links */}
+        {isAccountPage && (
+          <>
+            <SectionLabel label="Manage" expanded={expanded} />
+            {dynamicAccountLinks.map((link) => (
               <NavItem
                 key={link.href}
                 link={link}
@@ -245,15 +268,6 @@ export default function Sidebar({
               />
             ))}
           </>
-        ) : (
-          dynamicUserLinks.map((link) => (
-            <NavItem
-              key={link.href}
-              link={link}
-              expanded={expanded}
-              active={isActive(link)}
-            />
-          ))
         )}
       </nav>
 

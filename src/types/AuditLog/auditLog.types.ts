@@ -1,4 +1,4 @@
-import type { Pool, PoolConnection } from "mysql2/promise";
+import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 
 export const AUDIT_ACTIONS = [
   "CREATE",
@@ -44,3 +44,25 @@ export interface LogAuditOptions {
 }
 
 export type DbExecutor = Pool | PoolConnection;
+
+export interface AuditLogClient {
+  id: string;
+  user_id: string | null;
+  account_id: string | null;
+  action: string;
+  entity_type: string;
+  description: string;
+  created_at: string;
+}
+
+export interface AuditLogSinglelClient {
+  id: string;
+  action: string;
+  entity_type: string;
+  description: string;
+  created_at: string;
+  user_name: string | null;
+}
+
+export interface AuditLogSingleServerRow
+  extends AuditLogSinglelClient, RowDataPacket {}

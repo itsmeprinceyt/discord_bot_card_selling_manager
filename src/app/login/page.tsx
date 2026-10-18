@@ -14,10 +14,7 @@ import {
   Check,
   RefreshCw,
 } from "lucide-react";
-
-interface UnlockErrorBody {
-  error?: string;
-}
+import getAxiosErrorMessage from "../../utils/Auth/Auth.AxiosHelper";
 
 export default function LoginPage() {
   const [code, setCode] = useState("");
@@ -28,17 +25,6 @@ export default function LoginPage() {
   const searchParams = useSearchParams();
   const authError = searchParams.get("error");
 
-  /**
-   * Initial cookie check.
-   *
-   * If NextAuth bounced us back with `error=AccessDenied`, the `login_code`
-   * cookie on disk is stale — the code was consumed or expired between the
-   * unlock POST and the sign-in callback. Skip the cookie check entirely and
-   * force the user back into the form.
-   *
-   * Re-runs when `authError` changes so a client-side redirect also
-   * triggers the re-entry UX.
-   */
   useEffect(() => {
     const load = () => {
       let cancelled = false;
@@ -54,7 +40,9 @@ export default function LoginPage() {
       }
 
       axios
-        .get<{ unlocked?: boolean }>("/api/auth/unlock")
+        .get<{ unlocked?: boolean }>("/api/auth/unlock", {
+          withCredentials: true,
+        })
         .then(({ data }) => {
           if (cancelled) return;
           if (data.unlocked) setUnlocked(true);
@@ -79,15 +67,15 @@ export default function LoginPage() {
     setError("");
 
     try {
-      await axios.post("/api/auth/unlock", { code: code.trim() });
+      await axios.post(
+        "/api/auth/unlock",
+        { code: code.trim() },
+        { withCredentials: true },
+      );
       setUnlocked(true);
       toast.success("Code accepted — you can now sign up.");
-    } catch (err: unknown) {
-      if (axios.isAxiosError<UnlockErrorBody>(err)) {
-        setError(err.response?.data?.error ?? "Invalid code");
-      } else {
-        setError("Network error. Try again.");
-      }
+    } catch (err) {
+      setError(getAxiosErrorMessage(err, "Invalid code"));
     } finally {
       setLoading(false);
     }
@@ -199,7 +187,7 @@ export default function LoginPage() {
                     <button
                       type="submit"
                       disabled={loading || !code.trim()}
-                      className="w-full flex items-center justify-center gap-2 rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200 font-medium text-sm py-2.5 transition-colors duration-200 hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.985]"
+                      className="w-full flex items-center justify-center gap-2 rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200 font-medium text-sm py-2.5 transition-colors duration-200 hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.985] cursor-pointer"
                     >
                       {loading ? (
                         <>
@@ -221,7 +209,7 @@ export default function LoginPage() {
               {error && (
                 <div
                   role="alert"
-                  className="flex items-start gap-2 rounded-xl border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-400  "
+                  className="flex items-start gap-2 rounded-xl border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-400"
                 >
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>{error}</span>
