@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../../auth/[...nextauth]/route";
-import { db, initServer } from "../../../../../lib/Database/main.db";
+import { getPool } from "../../../../../lib/Database/main.db";
 import { generateULID } from "../../../../../utils/generateULID.util";
 
 interface AccountRow extends RowDataPacket {
@@ -23,7 +23,6 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    await initServer();
 
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -34,7 +33,7 @@ export async function GET(
       );
     }
 
-    const pool = db();
+    const pool = await getPool();
     const [rows] = await pool.execute<AccountRow[]>(
       `SELECT id, name, game_type, created_at
          FROM accounts
@@ -67,7 +66,6 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    await initServer();
 
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -94,7 +92,7 @@ export async function PUT(
       );
     }
 
-    const pool = db();
+    const pool = await getPool();
 
     // Ownership check
     const [owned] = await pool.execute<IdRow[]>(
@@ -150,7 +148,6 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    await initServer();
 
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -161,7 +158,7 @@ export async function DELETE(
       );
     }
 
-    const pool = db();
+    const pool = await getPool();
 
     const [rows] = await pool.execute<IdRow[]>(
       "SELECT id FROM accounts WHERE id = ? AND user_id = ? LIMIT 1",

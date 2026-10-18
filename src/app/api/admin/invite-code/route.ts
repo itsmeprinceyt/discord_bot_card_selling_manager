@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db, initServer } from "../../../../lib/Database/main.db";
+import { getPool } from "../../../../lib/Database/main.db";
 import type { RowDataPacket } from "mysql2";
 import requireAdmin from "../../../../utils/Permission/requireAdmin.backend.util";
 
@@ -14,8 +14,7 @@ export async function GET() {
   }
 
   try {
-    await initServer();
-    const pool = db();
+    const pool = await getPool();
 
     const [rows] = await pool.execute<InviteCodeRow[]>(
       "SELECT code FROM invite_code LIMIT 1",
@@ -47,8 +46,7 @@ export async function PUT(req: Request) {
   }
 
   try {
-    await initServer();
-    const pool = db();
+    const pool = await getPool();
     const conn = await pool.getConnection();
 
     try {

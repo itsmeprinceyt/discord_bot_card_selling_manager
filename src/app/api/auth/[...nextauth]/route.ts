@@ -5,9 +5,9 @@ import NextAuth, {
 } from "next-auth";
 import Google, { GoogleProfile } from "next-auth/providers/google";
 import { cookies } from "next/headers";
-import { initServer, db } from "../../../../lib/Database/main.db";
 
-import type { Pool } from "mysql2/promise";
+import { getPool } from "../../../../lib/Database/main.db";
+
 import { UserRow } from "../../../../types/User/UserRow.types";
 import { MyJWT } from "../../../../types/User/JWT.types";
 import { getCurrentDateTime } from "../../../../utils/ValueFetcher/getDateTime.util";
@@ -24,24 +24,6 @@ import { auditLog } from "../../../../services/AuditLog.service";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
-
-/* -------------------------------------------------------------------------- */
-/*  Database pool (lazy, module-scoped singleton)                             */
-/* -------------------------------------------------------------------------- */
-
-let pool: Pool | null = null;
-
-/**
- * Lazily initializes and returns the MySQL connection pool.
- * Safe to call repeatedly — the pool is created once per process.
- */
-async function getPool(): Promise<Pool> {
-  if (!pool) {
-    await initServer();
-    pool = db();
-  }
-  return pool;
-}
 
 /* -------------------------------------------------------------------------- */
 /*  Small helpers                                                             */

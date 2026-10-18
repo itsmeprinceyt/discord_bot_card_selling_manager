@@ -1,9 +1,10 @@
-import { db, initServer } from "../../lib/Database/main.db";
+import { getPool } from "../../lib/Database/main.db";
 import { getRedis } from "../../lib/Redis/redis.config";
 import { RedisKeyService } from "../../services/RedisKey.service";
 import { HeartbeatResponseDTO } from "../../types/Heartbeat.types";
 import { getCurrentDateTime } from "../ValueFetcher/getDateTime.util";
 import { generateULID } from "../generateULID.util";
+import type { Pool } from "mysql2/promise";
 
 /**
  * @brief Ensures the heartbeat table matches the current schema.
@@ -14,9 +15,7 @@ import { generateULID } from "../generateULID.util";
  * - `created_at` follows the project-wide naming convention
  * - No `service` column — this table only ever stores heartbeats
  */
-async function ensureHeartbeatTable(
-  pool: ReturnType<typeof db>,
-): Promise<void> {
+async function ensureHeartbeatTable(pool: Pool): Promise<void> {
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS heartbeat (
       id VARCHAR(40) NOT NULL PRIMARY KEY,
@@ -38,8 +37,7 @@ async function ensureHeartbeatTable(
  */
 export async function runHeartbeat(): Promise<HeartbeatResponseDTO> {
   try {
-    await initServer();
-    const pool = db();
+    const pool = await getPool();
     const redis = getRedis();
 
     await pool.query("SELECT 1");
@@ -52,9 +50,6 @@ export async function runHeartbeat(): Promise<HeartbeatResponseDTO> {
       getCurrentDateTime(),
     ]);
 
-    // Keep only the most recent 10 rows.
-    // `id DESC` breaks ties when two rows share the same second, and
-    // since IDs are ULIDs they are lexicographically sortable by creation time.
     await pool.execute(`
       DELETE FROM heartbeat
       WHERE id NOT IN (

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { initServer, db } from "../../../../lib/Database/main.db";
+import { getPool } from "../../../../lib/Database/main.db";
 import type { RowDataPacket } from "mysql2";
 import requireAdmin from "../../../../utils/Permission/requireAdmin.backend.util";
 
@@ -42,8 +42,7 @@ export async function GET(req: Request) {
       Math.max(1, Number.isFinite(limitRaw) ? limitRaw : DEFAULT_LIMIT),
     );
 
-    await initServer();
-    const pool = db();
+    const pool = await getPool();
 
     const [countRows] = await pool.execute<CountRow[]>(
       "SELECT COUNT(*) AS count FROM audit_logs",
