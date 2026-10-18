@@ -9,22 +9,15 @@ import {
   ChevronRight,
   RefreshCw,
 } from "lucide-react";
+import axios from "axios";
 import { formatDateTime } from "../../../utils/Formator/formatDateTime.util";
+import { AuditLogClient } from "../../../types/AuditLog/auditLog.types";
+import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
 
 const PAGE_SIZE = 20;
 
-interface AuditLog {
-  id: string;
-  user_id: string | null;
-  account_id: string | null;
-  action: string;
-  entity_type: string;
-  description: string;
-  created_at: string;
-}
-
 export default function AuditLogPanel() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [logs, setLogs] = useState<AuditLogClient[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -36,12 +29,12 @@ export default function AuditLogPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
+      const { data } = await axios.get(
         `/api/admin/audit-logs?page=${p}&limit=${PAGE_SIZE}`,
+        { withCredentials: true },
       );
-      const data = await res.json().catch(() => ({}));
 
-      if (!res.ok || !data.ok) {
+      if (!data.ok) {
         setError("Failed to load audit logs");
         return;
       }
@@ -50,18 +43,18 @@ export default function AuditLogPanel() {
       setPage(data.page ?? p);
       setTotal(data.total ?? 0);
       setTotalPages(data.totalPages ?? 1);
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      setError(getAxiosErrorMessage(err, "Failed to load audit logs"));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const loadd = () => {
+    const ahem = () => {
       load(1);
     };
-    loadd();
+    ahem();
   }, [load]);
 
   return (
@@ -82,7 +75,7 @@ export default function AuditLogPanel() {
           onClick={() => load(page)}
           disabled={loading}
           title="Refresh"
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200 disabled:opacity-40"
+          className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200 disabled:opacity-40"
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -136,7 +129,7 @@ export default function AuditLogPanel() {
                 type="button"
                 onClick={() => load(page - 1)}
                 disabled={loading || page <= 1}
-                className="flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-40"
+                className="flex cursor-pointer items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-40"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
                 Prev
@@ -145,7 +138,7 @@ export default function AuditLogPanel() {
                 type="button"
                 onClick={() => load(page + 1)}
                 disabled={loading || page >= totalPages}
-                className="flex items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-40"
+                className="flex cursor-pointer items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-40"
               >
                 Next
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -162,7 +155,7 @@ export default function AuditLogPanel() {
 /*  Row                                                                */
 /* ------------------------------------------------------------------ */
 
-function LogRow({ log }: { log: AuditLog }) {
+function LogRow({ log }: { log: AuditLogClient }) {
   return (
     <li className="px-4 py-3.5 transition hover:bg-neutral-950/50">
       {/* Top line: badges + time */}

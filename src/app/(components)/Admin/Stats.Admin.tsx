@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Users, ShieldCheck, Loader2 } from "lucide-react";
+import axios from "axios";
+import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
 
 interface Stats {
   users: number;
@@ -18,10 +20,11 @@ export default function AdminStats() {
 
     async function load() {
       try {
-        const res = await fetch("/api/admin/stats", { cache: "no-store" });
-        const data = await res.json().catch(() => ({}));
+        const { data } = await axios.get("/api/admin/stats", {
+          withCredentials: true,
+        });
 
-        if (!res.ok || !data.ok) {
+        if (!data.ok) {
           if (!cancelled) setErrored(true);
           return;
         }
@@ -32,7 +35,8 @@ export default function AdminStats() {
             admins: data.admins ?? 0,
           });
         }
-      } catch {
+      } catch (err) {
+        console.error(getAxiosErrorMessage(err, "Failed to load stats"));
         if (!cancelled) setErrored(true);
       } finally {
         if (!cancelled) setLoading(false);

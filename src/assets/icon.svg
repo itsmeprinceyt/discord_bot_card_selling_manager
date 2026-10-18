@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Outer App Icon Border - Black BG -->
+  <rect
+    x="24"
+    y="24"
+    width="464"
+    height="464"
+    rx="96"
+    fill="black"
+    stroke="black"
+    stroke-width="24"
+  />
+  <!-- Card -->
+  <rect
+    x="120"
+    y="90"
+    width="272"
+    height="332"
+    rx="40"
+    fill="none"
+    stroke="white"
+    stroke-width="18"
+  />
+  <!-- Star -->
+  <path
+    fill="white"
+    d="
+      M340 135
+      L348 155
+      L370 155
+      L352 169
+      L359 191
+      L340 177
+      L321 191
+      L328 169
+      L310 155
+      L332 155
+      Z
+    "
+  />
+  <!-- List Lines -->
+  <line
+    x1="170"
+    y1="235"
+    x2="340"
+    y2="235"
+    stroke="white"
+    stroke-width="16"
+    stroke-linecap="round"
+  />
+  <line
+    x1="170"
+    y1="285"
+    x2="340"
+    y2="285"
+    stroke="white"
+    stroke-width="16"
+    stroke-linecap="round"
+  />
+  <line
+    x1="170"
+    y1="335"
+    x2="340"
+    y2="335"
+    stroke="white"
+    stroke-width="16"
+    stroke-linecap="round"
+  />
+</svg>

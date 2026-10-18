@@ -3,30 +3,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import axios, { AxiosError } from "axios";
+import axios from "axios";
 import CustomLoader from "../../../(components)/CustomLoader";
 import toast from "react-hot-toast";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
-
-// NAYA IMPORT: GameType aur GAME_LABEL use kiya hai
 import {
   GameType,
   GAME_LABEL,
 } from "../../../../utils/Dashboard/accountLabels";
-
-interface ApiErrorBody {
-  ok: false;
-  error: string;
-}
-
-function getErrorMessage(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err)) {
-    const ax = err as AxiosError<ApiErrorBody>;
-    return ax.response?.data?.error ?? ax.message ?? fallback;
-  }
-  if (err instanceof Error) return err.message;
-  return fallback;
-}
 
 export default function AddOrderPage() {
   const params = useParams();
@@ -35,7 +19,7 @@ export default function AddOrderPage() {
   const accountId = params.accountId as string;
 
   const [account, setAccount] = useState<{
-    game_type: GameType; // <-- Yahan string ki jagah GameType use kiya
+    game_type: GameType;
   } | null>(null);
 
   const [discordId, setDiscordId] = useState("");
@@ -129,7 +113,7 @@ export default function AddOrderPage() {
     } catch (err) {
       setResult({
         type: "error",
-        message: getErrorMessage(err, "Failed to add order"),
+        message: getAxiosErrorMessage(err, "Failed to add order"),
       });
     } finally {
       setLoading(false);
@@ -154,7 +138,6 @@ export default function AddOrderPage() {
           </button>
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Add Order</h1>
-            {/* Yahan GAME_LABEL use karke game ka proper naam dikhaya hai */}
             <p className="text-xs text-neutral-500 mt-0.5">
               {account
                 ? `Create a new reservation for ${GAME_LABEL[account.game_type]}`

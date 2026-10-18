@@ -4,39 +4,39 @@ import type { RowDataPacket } from "mysql2";
 import { getPool } from "../../../../../../lib/Database/main.db";
 import { authOptions } from "../../../../auth/[...nextauth]/route";
 import { generateULID } from "../../../../../../utils/generateULID.util";
-import { GameType } from "../../../../../../utils/Dashboard/accountLabels";
+import {
+  GameType,
+  getValidCurrencies,
+} from "../../../../../../utils/Dashboard/accountLabels";
 
-// --- Types ---
 interface AccountRow extends RowDataPacket {
   id: string;
   game_type: GameType;
 }
+
 interface BuyerRow extends RowDataPacket {
   id: string;
 }
+
 interface CardRow extends RowDataPacket {
   id: string;
   status: "PENDING" | "TRADED" | "CANCELLED";
   currency_type: string;
   price_tier: number;
 }
+
 interface OrderRow extends RowDataPacket {
   id: string;
   status: "WAITING" | "CANCELLED" | "COMPLETED";
   queue_position: number;
 }
 
-// Currency helper based on GameType
-function getValidCurrencies(gameType: GameType): string[] {
-  return gameType === "SOFI" ? ["silver", "wist"] : ["gold", "tickets"];
-}
-
 export async function POST(
   req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ accountId: string }> },
 ) {
   try {
-    const { id: accountId } = await params;
+    const { accountId } = await params;
 
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -71,7 +71,6 @@ export async function POST(
 
     const pool = await getPool();
 
-    // 1. Verify account ownership
     const [accounts] = await pool.execute<AccountRow[]>(
       "SELECT id, game_type FROM accounts WHERE id = ? AND user_id = ? LIMIT 1",
       [accountId, userId],
@@ -84,16 +83,13 @@ export async function POST(
     }
     const account = accounts[0];
 
-    // Determine valid currency using our new helper
     const validCurrencies = getValidCurrencies(account.game_type);
     let finalCurrency = currency_type || validCurrencies[0];
 
-    // Fallback if invalid currency is passed
     if (!validCurrencies.includes(finalCurrency)) {
       finalCurrency = validCurrencies[0];
     }
 
-    // 2. Handle Buyer
     const [buyers] = await pool.execute<BuyerRow[]>(
       "SELECT id FROM buyers WHERE discord_id = ? AND account_id = ? LIMIT 1",
       [trimDiscord, accountId],
@@ -108,7 +104,6 @@ export async function POST(
       );
     }
 
-    // 3. Handle Card
     const [cards] = await pool.execute<CardRow[]>(
       "SELECT id, status, currency_type, price_tier FROM cards WHERE card_code = ? AND account_id = ? LIMIT 1",
       [trimCode, accountId],
@@ -131,14 +126,12 @@ export async function POST(
         { status: 400 },
       );
     } else if (card.status === "CANCELLED") {
-      // Reactivate
       await pool.execute(
         "UPDATE cards SET status = 'PENDING', currency_type = ?, price_tier = ? WHERE id = ?",
         [finalCurrency, tier, cardId],
       );
     }
 
-    // 4. Check Existing Order
     const [existingOrders] = await pool.execute<OrderRow[]>(
       "SELECT id, status, queue_position FROM orders WHERE buyer_id = ? AND card_id = ? LIMIT 1",
       [buyerId, cardId],
@@ -176,7 +169,6 @@ export async function POST(
       );
     }
 
-    // 5. Create New Order
     const [lastOrders] = await pool.execute<OrderRow[]>(
       "SELECT queue_position FROM orders WHERE card_id = ? AND status = 'WAITING' ORDER BY queue_position DESC LIMIT 1",
       [cardId],
@@ -189,6 +181,7 @@ export async function POST(
       separator: "_",
       maxLength: 40,
     });
+
     await pool.execute(
       "INSERT INTO orders (id, account_id, buyer_id, card_id, queue_position, status) VALUES (?, ?, ?, ?, ?, 'WAITING')",
       [orderId, accountId, buyerId, cardId, queuePosition],

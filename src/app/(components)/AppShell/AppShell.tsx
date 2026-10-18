@@ -50,7 +50,7 @@ export default function AppShell({
         <div
           onClick={() => setExpanded(false)}
           aria-hidden
-          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-30 bg-black/60 lg:hidden"
         />
       )}
 

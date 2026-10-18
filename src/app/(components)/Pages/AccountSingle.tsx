@@ -4,15 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import {
   LayoutDashboard,
-  Users,
   CreditCard,
-  CheckCircle,
-  Clock,
   ArrowLeft,
+  FileSpreadsheet,
+  UploadCloud,
+  Search,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper"; // Apna path check kar lena
-import CustomLoader from "../../(components)/CustomLoader"; // Apna path check kar lena
+import Link from "next/link";
+import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
+import CustomLoader from "../../(components)/CustomLoader";
 import {
   AccountSingleType,
   StatsSingle,
@@ -60,6 +61,37 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
     );
   if (!account || !stats) return null;
 
+  const quickLinks = [
+    {
+      href: `/dashboard/${accountId}/trade-sheet`,
+      label: "Trade Sheet",
+      desc: "Manage active trades",
+      icon: FileSpreadsheet,
+      color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    },
+    {
+      href: `/dashboard/${accountId}/cards`,
+      label: "Cards",
+      desc: "Search & manage cards",
+      icon: CreditCard,
+      color: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+    },
+    {
+      href: `/dashboard/${accountId}/buyers`,
+      label: "Buyers",
+      desc: "Lookup buyer queues",
+      icon: Search,
+      color: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+    },
+    {
+      href: `/dashboard/${accountId}/bulk-import`,
+      label: "Bulk Import",
+      desc: "Import multiple orders",
+      icon: UploadCloud,
+      color: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    },
+  ];
+
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100 px-4 py-16">
       <div className="mx-auto w-full max-w-3xl">
@@ -79,8 +111,45 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
           </div>
         </div>
 
+        {/* Stats Grid (No Icons) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-center">
+            <p className="text-3xl font-bold text-white">
+              {stats.activeBuyers}
+            </p>
+            <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
+              Active Buyers
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-center">
+            <p className="text-3xl font-bold text-white">{stats.totalCards}</p>
+            <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
+              Total Cards
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-center">
+            <p className="text-3xl font-bold text-white">
+              {stats.completedToday}
+            </p>
+            <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
+              Completed Today
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-center">
+            <p className="text-3xl font-bold text-white">
+              {stats.completedLast30Days}
+            </p>
+            <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
+              Last 30 Days
+            </p>
+          </div>
+        </div>
+
         {/* Optional info banner */}
-        <div className="my-8 rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6 flex items-start gap-4">
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6 flex items-start gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-800 text-neutral-400">
             <LayoutDashboard size={20} />
           </div>
@@ -89,80 +158,42 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
               Welcome to your dashboard
             </h2>
             <p className="text-sm text-neutral-500 mt-1">
-              Use the sidebar to manage cards, buyers, and orders. Need to
-              import multiple orders? Head over to the Bulk Import section.
+              Use the quick actions above or the sidebar to manage cards,
+              buyers, and orders.
             </p>
           </div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Active Buyers */}
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400">
-                <Users size={20} />
-              </div>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-white">
-                {stats.activeBuyers}
-              </p>
-              <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
-                Active Buyers
-              </p>
-            </div>
-          </div>
-
-          {/* Total Cards */}
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/10 text-blue-400">
-                <CreditCard size={20} />
-              </div>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-white">
-                {stats.totalCards}
-              </p>
-              <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
-                Total Cards
-              </p>
-            </div>
-          </div>
-
-          {/* Completed Today */}
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
-                <CheckCircle size={20} />
-              </div>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-white">
-                {stats.completedToday}
-              </p>
-              <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
-                Completed Today
-              </p>
-            </div>
-          </div>
-
-          {/* Completed Last 30 Days */}
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10 text-amber-400">
-                <Clock size={20} />
-              </div>
-            </div>
-            <div>
-              <p className="text-3xl font-bold text-white">
-                {stats.completedLast30Days}
-              </p>
-              <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
-                Last 30 Days
-              </p>
-            </div>
+        {/* Quick Actions / Button Chips */}
+        <div className="my-8">
+          <h2 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-4">
+            Quick Actions
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            {quickLinks.map((link) => {
+              const Icon = link.icon;
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="group flex flex-col items-start gap-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4 transition hover:border-neutral-700 hover:bg-neutral-800/50"
+                >
+                  <div
+                    className={`flex h-10 w-10 items-center justify-center rounded-lg border ${link.color}`}
+                  >
+                    <Icon size={18} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-neutral-200 group-hover:text-white transition">
+                      {link.label}
+                    </p>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      {link.desc}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </div>
       </div>

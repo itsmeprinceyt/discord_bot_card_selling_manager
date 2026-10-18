@@ -11,7 +11,9 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
+import axios from "axios";
 import { generateULID } from "../../../utils/generateULID.util";
+import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper"; // Apna path check kar lena
 
 const MAX_LEN = 255;
 
@@ -32,18 +34,27 @@ export default function InviteCodePanel() {
 
   // ── Load current code on mount ─────────────────────────────────────────
   useEffect(() => {
-    fetch("/api/admin/invite-code")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.ok) {
-          setCode(d.code ?? "");
-          setOriginalCode(d.code ?? "");
+    async function loadCode() {
+      try {
+        const { data } = await axios.get("/api/admin/invite-code", {
+          withCredentials: true,
+        });
+        if (data.ok) {
+          setCode(data.code ?? "");
+          setOriginalCode(data.code ?? "");
         } else {
           setStatus({ type: "err", msg: "Failed to load invite code" });
         }
-      })
-      .catch(() => setStatus({ type: "err", msg: "Network error" }))
-      .finally(() => setLoading(false));
+      } catch (err) {
+        setStatus({
+          type: "err",
+          msg: getAxiosErrorMessage(err, "Network error"),
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadCode();
   }, []);
 
   // ── Save a new code ────────────────────────────────────────────────────
@@ -52,15 +63,13 @@ export default function InviteCodePanel() {
     setStatus(null);
 
     try {
-      const res = await fetch("/api/admin/invite-code", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: next }),
-      });
+      const { data } = await axios.put(
+        "/api/admin/invite-code",
+        { code: next },
+        { withCredentials: true },
+      );
 
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || !data.ok) {
+      if (!data.ok) {
         setStatus({
           type: "err",
           msg: data.error ?? "Failed to update code",
@@ -73,8 +82,11 @@ export default function InviteCodePanel() {
       setStatus({ type: "ok", msg: "Saved" });
       setTimeout(() => setStatus(null), 2000);
       return true;
-    } catch {
-      setStatus({ type: "err", msg: "Network error" });
+    } catch (err) {
+      setStatus({
+        type: "err",
+        msg: getAxiosErrorMessage(err, "Failed to update code"),
+      });
       return false;
     } finally {
       setSaving(false);
@@ -230,7 +242,7 @@ function ViewMode({
           onClick={onCopy}
           disabled={!code}
           title="Copy"
-          className="flex h-auto w-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200 disabled:opacity-40"
+          className="flex h-auto w-10 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-950 text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200 disabled:opacity-40 cursor-pointer"
         >
           {copied ? (
             <Check className="h-4 w-4 text-emerald-400" />
@@ -245,7 +257,7 @@ function ViewMode({
           type="button"
           onClick={onRefresh}
           disabled={saving}
-          className="flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-neutral-200 disabled:opacity-50"
+          className="flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-neutral-200 disabled:opacity-50 cursor-pointer"
         >
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -259,7 +271,7 @@ function ViewMode({
           type="button"
           onClick={onCustom}
           disabled={saving}
-          className="flex items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-50"
+          className="flex items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-50 cursor-pointer"
         >
           <PenLine className="h-4 w-4" />
           Custom
@@ -300,7 +312,7 @@ function CustomMode({
         <button
           type="button"
           onClick={onReset}
-          className="text-xs text-neutral-500 hover:text-neutral-300"
+          className="text-xs text-neutral-500 hover:text-neutral-300 cursor-pointer"
         >
           Reset
         </button>
@@ -328,7 +340,7 @@ function CustomMode({
           type="button"
           onClick={onSave}
           disabled={saving || !draft.trim()}
-          className="flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-neutral-200 disabled:opacity-50"
+          className="flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-neutral-200 disabled:opacity-50 cursor-pointer"
         >
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -342,7 +354,7 @@ function CustomMode({
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="flex items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-50"
+          className="flex items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:border-neutral-700 hover:bg-neutral-900 disabled:opacity-50 cursor-pointer"
         >
           <X className="h-4 w-4" />
           Cancel

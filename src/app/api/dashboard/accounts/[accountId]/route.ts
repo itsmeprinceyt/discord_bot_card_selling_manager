@@ -19,10 +19,10 @@ interface IdRow extends RowDataPacket {
 /* --------------------------------- GET --------------------------------- */
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ accountId: string }> },
 ) {
   try {
-    const { id } = await params;
+    const { accountId } = await params;
 
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -34,12 +34,14 @@ export async function GET(
     }
 
     const pool = await getPool();
+
+    // 1. Fetch Account Details
     const [rows] = await pool.execute<AccountRow[]>(
       `SELECT id, name, game_type, created_at
          FROM accounts
         WHERE id = ? AND user_id = ?
         LIMIT 1`,
-      [id, userId],
+      [accountId, userId],
     );
 
     if (rows.length === 0) {
@@ -49,7 +51,50 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({ ok: true, account: rows[0] });
+    const account = rows[0];
+
+    // 2. Fetch Stats
+    const [activeBuyersRes] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(DISTINCT buyer_id) as count 
+       FROM orders 
+       WHERE account_id = ? AND status = 'WAITING'`,
+      [accountId],
+    );
+
+    const [totalCardsRes] = await pool.execute<RowDataPacket[]>(
+      "SELECT COUNT(*) as count FROM cards WHERE account_id = ?",
+      [accountId],
+    );
+
+    const [todayRes] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) as count 
+       FROM orders 
+       WHERE account_id = ? 
+         AND status = 'COMPLETED' 
+         AND DATE(completed_at) = CURDATE()`,
+      [accountId],
+    );
+
+    const [last30Res] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) as count 
+       FROM orders 
+       WHERE account_id = ? 
+         AND status = 'COMPLETED' 
+         AND completed_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`,
+      [accountId],
+    );
+
+    // 3. Return combined response
+    return NextResponse.json({
+      ok: true,
+      account,
+      stats: {
+        activeBuyers: activeBuyersRes[0].count,
+        totalCards: totalCardsRes[0].count,
+        completedToday: todayRes[0].count,
+        completedLast30Days: last30Res[0].count,
+      },
+    });
   } catch (err) {
     console.error("GET /api/accounts/[id] failed:", err);
     return NextResponse.json(
@@ -62,10 +107,10 @@ export async function GET(
 /* --------------------------------- PUT --------------------------------- */
 export async function PUT(
   req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ accountId: string }> },
 ) {
   try {
-    const { id } = await params;
+    const { accountId } = await params;
 
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -97,7 +142,7 @@ export async function PUT(
     // Ownership check
     const [owned] = await pool.execute<IdRow[]>(
       "SELECT id FROM accounts WHERE id = ? AND user_id = ? LIMIT 1",
-      [id, userId],
+      [accountId, userId],
     );
     if (owned.length === 0) {
       return NextResponse.json(
@@ -109,7 +154,7 @@ export async function PUT(
     // Name uniqueness — scoped to this user, excluding self.
     const [taken] = await pool.execute<IdRow[]>(
       "SELECT id FROM accounts WHERE name = ? AND id <> ? AND user_id = ? LIMIT 1",
-      [name, id, userId],
+      [name, accountId, userId],
     );
     if (taken.length > 0) {
       return NextResponse.json(
@@ -118,7 +163,10 @@ export async function PUT(
       );
     }
 
-    await pool.execute("UPDATE accounts SET name = ? WHERE id = ?", [name, id]);
+    await pool.execute("UPDATE accounts SET name = ? WHERE id = ?", [
+      name,
+      accountId,
+    ]);
 
     await pool.execute(
       `INSERT INTO audit_logs (id, user_id, account_id, action, entity_type, description)
@@ -126,12 +174,12 @@ export async function PUT(
       [
         generateULID({ prefix: "log", separator: "_", maxLength: 40 }),
         userId,
-        id,
+        accountId,
         `Account renamed to "${name}"`,
       ],
     );
 
-    return NextResponse.json({ ok: true, account: { id, name } });
+    return NextResponse.json({ ok: true, account: { id: accountId, name } });
   } catch (err) {
     console.error("PUT /api/accounts/[id] failed:", err);
     return NextResponse.json(
@@ -144,10 +192,10 @@ export async function PUT(
 /* -------------------------------- DELETE ------------------------------- */
 export async function DELETE(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ accountId: string }> },
 ) {
   try {
-    const { id } = await params;
+    const { accountId } = await params;
 
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -160,9 +208,10 @@ export async function DELETE(
 
     const pool = await getPool();
 
+    // Ownership check
     const [rows] = await pool.execute<IdRow[]>(
       "SELECT id FROM accounts WHERE id = ? AND user_id = ? LIMIT 1",
-      [id, userId],
+      [accountId, userId],
     );
     if (rows.length === 0) {
       return NextResponse.json(
@@ -171,15 +220,16 @@ export async function DELETE(
       );
     }
 
+    // Get account name for audit log
     const [nameRows] = await pool.execute<RowDataPacket[]>(
       "SELECT name FROM accounts WHERE id = ? LIMIT 1",
-      [id],
+      [accountId],
     );
     const accountName = String(
       (nameRows[0] as { name?: string } | undefined)?.name ?? "",
     );
 
-    await pool.execute("DELETE FROM accounts WHERE id = ?", [id]);
+    await pool.execute("DELETE FROM accounts WHERE id = ?", [accountId]);
 
     await pool.execute(
       `INSERT INTO audit_logs (id, user_id, account_id, action, entity_type, description)
