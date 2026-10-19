@@ -25,6 +25,12 @@ interface Card {
   orders: Order[];
 }
 
+interface CancelActionResponse {
+  ok: boolean;
+  card_deleted?: boolean;
+  card_code?: string;
+}
+
 export default function CardsPage() {
   const params = useParams();
   const router = useRouter();
@@ -91,63 +97,100 @@ export default function CardsPage() {
       );
       setCard(data.card);
     } catch (err) {
-      toast.error(getAxiosErrorMessage(err, "Failed to refresh card"));
+      // If the card vanished (e.g. another tab cancelled the last order),
+      // treat it as a clean deletion rather than showing a scary error.
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        setCard(null);
+        setSearched(false);
+        setSearch("");
+      } else {
+        toast.error(getAxiosErrorMessage(err, "Failed to refresh card"));
+      }
     }
+  };
+
+  /**
+   * Shared handler for both cancel-first and per-row remove.
+   *   - Refuses if the card has no waiting orders.
+   *   - Warns when this is the last waiting order (card will be deleted).
+   *   - After the API call, reacts to `card_deleted` to avoid the
+   *     404-on-refresh problem: clears card state + search input instead.
+   */
+  const performCancel = (
+    orderId: string,
+    position: number,
+    isFirst: boolean,
+  ) => {
+    if (!card) return;
+    if (card.orders.length === 0) return;
+
+    const isLastOrder = card.orders.length === 1;
+
+    const baseMsg = isFirst
+      ? `Cancel position #1 buyer for ${card.card_code}?`
+      : `Remove position #${position} from the queue?`;
+
+    const message = isLastOrder
+      ? `${baseMsg} This is the last buyer — removing them will permanently delete the card ${card.card_code}.`
+      : baseMsg;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: isFirst ? "Cancel First Position" : "Remove from Queue",
+      message,
+      confirmText: isFirst ? "Cancel First" : "Remove",
+      variant: "danger",
+      onConfirm: async () => {
+        setConfirmLoading(true);
+        try {
+          const { data } = await axios.patch<CancelActionResponse>(
+            `/api/dashboard/accounts/${accountId}/orders/${orderId}`,
+            { action: isFirst ? "cancel-first" : "cancel" },
+            { withCredentials: true },
+          );
+
+          if (data?.card_deleted) {
+            // Card was destroyed — don't try to refresh (would 404)
+            setMsg(
+              isFirst
+                ? `Position #1 cancelled. Card ${data.card_code ?? card.card_code} deleted permanently — no remaining buyers.`
+                : `Position #${position} removed. Card ${data.card_code ?? card.card_code} deleted permanently — no remaining buyers.`,
+            );
+            setCard(null);
+            setSearched(false);
+            setSearch("");
+            setError("");
+          } else {
+            setMsg(
+              isFirst
+                ? "Position #1 cancelled."
+                : `Position #${position} removed.`,
+            );
+            await refresh();
+          }
+        } catch (err) {
+          setError(
+            getAxiosErrorMessage(
+              err,
+              isFirst ? "Failed to cancel" : "Failed to remove",
+            ),
+          );
+        } finally {
+          setConfirmLoading(false);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
   };
 
   const handleCancelFirst = () => {
     if (!card || card.orders.length === 0) return;
-    setConfirmDialog({
-      isOpen: true,
-      title: "Cancel First Position",
-      message: `Cancel position #1 buyer for ${card.card_code}?`,
-      confirmText: "Cancel First",
-      variant: "danger",
-      onConfirm: async () => {
-        setConfirmLoading(true);
-        try {
-          await axios.patch(
-            `/api/dashboard/accounts/${accountId}/orders/${card.orders[0]?.id}`,
-            { action: "cancel-first" },
-            { withCredentials: true },
-          );
-          setMsg("Position #1 cancelled.");
-          await refresh();
-        } catch (err) {
-          setError(getAxiosErrorMessage(err, "Failed to cancel"));
-        } finally {
-          setConfirmLoading(false);
-          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-        }
-      },
-    });
+    const first = card.orders[0];
+    performCancel(first.id, first.queue_position, true);
   };
 
   const handleRemove = (orderId: string, pos: number) => {
-    setConfirmDialog({
-      isOpen: true,
-      title: "Remove from Queue",
-      message: `Remove position #${pos} from the queue?`,
-      confirmText: "Remove",
-      variant: "danger",
-      onConfirm: async () => {
-        setConfirmLoading(true);
-        try {
-          await axios.patch(
-            `/api/dashboard/accounts/${accountId}/orders/${orderId}`,
-            { action: "cancel" },
-            { withCredentials: true },
-          );
-          setMsg(`Position #${pos} removed.`);
-          await refresh();
-        } catch (err) {
-          setError(getAxiosErrorMessage(err, "Failed to remove"));
-        } finally {
-          setConfirmLoading(false);
-          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-        }
-      },
-    });
+    performCancel(orderId, pos, false);
   };
 
   const handleMarkDone = (

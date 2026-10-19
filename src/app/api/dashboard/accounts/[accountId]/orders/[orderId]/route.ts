@@ -18,11 +18,19 @@ import { generateULID } from "../../../../../../../utils/generateULID.util";
  *                   `traded_for` derived from the card row), cancel any
  *                   other WAITING orders for the same card (the card was
  *                   traded to this buyer, so the waitlist is moot).
- * - cancel        → mark order CANCELLED (only if currently WAITING), then
- *                   shift down subsequent WAITING orders so positions stay
- *                   contiguous.
+ * - cancel        → mark order CANCELLED (only if currently WAITING), shift
+ *                   down subsequent WAITING orders so positions stay
+ *                   contiguous, then delete the card entirely if it now has
+ *                   no WAITING orders left and is still PENDING.
  * - cancel-first  → same as cancel; kept as a distinct action for the "Cancel
  *                   First" button on the card page.
+ *
+ * Orphaned-card deletion:
+ *   When the last WAITING order for a PENDING card is cancelled, the card
+ *   is left with no active buyers. Rather than keep a useless PENDING card
+ *   hanging around, this endpoint deletes it. The cascade `ON DELETE CASCADE`
+ *   on `orders.card_id` removes any historical CANCELLED orders tied to the
+ *   card (COMPLETED orders cannot exist on a PENDING card under normal flow).
  *
  * The former `orders.completed_cards` column has been dropped —
  * `cards.traded_for` is the only place the trade description lives now,
@@ -32,6 +40,7 @@ import { generateULID } from "../../../../../../../utils/generateULID.util";
  *   • COMPLETED orders cannot be touched (must use /undo).
  *   • CANCELLED orders cannot be touched.
  *   • Only WAITING orders are eligible for either action.
+ *   • Cards are only deleted when they're PENDING and have no WAITING orders.
  */
 export async function PATCH(
   req: Request,
@@ -180,12 +189,15 @@ export async function PATCH(
       return NextResponse.json({ ok: true });
     }
 
-    // ── Cancel / cancel-first: cancel only if WAITING, then promote ─────
+    // ── Cancel / cancel-first ───────────────────────────────────────────
     if (action === "cancel" || action === "cancel-first") {
       const conn = await pool.getConnection();
+      let cardDeleted = false;
+
       try {
         await conn.beginTransaction();
 
+        // 1. Cancel the order (only if still WAITING)
         const [cancelRes]: any = await conn.execute(
           `UPDATE orders
            SET status = 'CANCELLED'
@@ -201,7 +213,7 @@ export async function PATCH(
           );
         }
 
-        // Shift down subsequent WAITING orders to keep positions contiguous
+        // 2. Shift down subsequent WAITING orders to keep positions contiguous
         await conn.execute(
           `UPDATE orders
            SET queue_position = queue_position - 1
@@ -211,6 +223,32 @@ export async function PATCH(
           [order.card_id, accountId, order.queue_position],
         );
 
+        // 3. If the card now has no WAITING orders left and is still
+        //    PENDING, delete it entirely. The ON DELETE CASCADE on
+        //    orders.card_id will remove any historical CANCELLED orders
+        //    for this card too — the audit log below preserves the story.
+        const [deleteRes]: any = await conn.execute(
+          `DELETE c FROM cards c
+           WHERE c.id = ? AND c.account_id = ? AND c.status = 'PENDING'
+             AND NOT EXISTS (
+               SELECT 1 FROM orders o
+               WHERE o.card_id = c.id AND o.status = 'WAITING'
+             )`,
+          [order.card_id, accountId],
+        );
+
+        cardDeleted = deleteRes.affectedRows > 0;
+
+        // 4. Audit log — single merged entry (matches "option B")
+        const baseDesc =
+          action === "cancel-first"
+            ? `First-position order ${orderId} cancelled`
+            : `Order ${orderId} cancelled`;
+
+        const auditDesc = cardDeleted
+          ? `${baseDesc}; orphaned card ${order.card_code} deleted (no remaining buyers)`
+          : baseDesc;
+
         await conn.execute(
           `INSERT INTO audit_logs (id, user_id, account_id, action, entity_type, description)
            VALUES (?, ?, ?, 'ORDER_CANCELLED', 'ORDER', ?)`,
@@ -218,9 +256,7 @@ export async function PATCH(
             generateULID({ prefix: "log", separator: "_", maxLength: 40 }),
             userId,
             accountId,
-            action === "cancel-first"
-              ? `First-position order ${orderId} cancelled`
-              : `Order ${orderId} cancelled`,
+            auditDesc,
           ],
         );
 
@@ -232,7 +268,11 @@ export async function PATCH(
         conn.release();
       }
 
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({
+        ok: true,
+        card_deleted: cardDeleted,
+        card_code: cardDeleted ? order.card_code : undefined,
+      });
     }
 
     return NextResponse.json(
