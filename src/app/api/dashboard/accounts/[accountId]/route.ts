@@ -54,33 +54,44 @@ export async function GET(
     const account = rows[0];
 
     // 2. Fetch Stats
+    //
+    // activeBuyers  → unique buyers who still have a WAITING order on a
+    //                 PENDING card. A buyer with 3 pending cards counts once.
     const [activeBuyersRes] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(DISTINCT buyer_id) as count 
-       FROM orders 
-       WHERE account_id = ? AND status = 'WAITING'`,
+      `SELECT COUNT(DISTINCT o.buyer_id) AS count
+         FROM orders o
+         JOIN cards c ON o.card_id = c.id
+        WHERE o.account_id = ?
+          AND o.status = 'WAITING'
+          AND c.status = 'PENDING'`,
       [accountId],
     );
 
+    // totalCards    → cards still in PENDING status (i.e. not yet sold).
     const [totalCardsRes] = await pool.execute<RowDataPacket[]>(
-      "SELECT COUNT(*) as count FROM cards WHERE account_id = ?",
+      `SELECT COUNT(*) AS count
+         FROM cards
+        WHERE account_id = ? AND status = 'PENDING'`,
       [accountId],
     );
 
+    // completedToday → cards that became TRADED today (sold today).
     const [todayRes] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) as count 
-       FROM orders 
-       WHERE account_id = ? 
-         AND status = 'COMPLETED' 
-         AND DATE(completed_at) = CURDATE()`,
+      `SELECT COUNT(*) AS count
+         FROM cards
+        WHERE account_id = ?
+          AND status = 'TRADED'
+          AND DATE(traded_at) = CURDATE()`,
       [accountId],
     );
 
+    // completedLast30Days → cards traded in the last 30 days.
     const [last30Res] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) as count 
-       FROM orders 
-       WHERE account_id = ? 
-         AND status = 'COMPLETED' 
-         AND completed_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`,
+      `SELECT COUNT(*) AS count
+         FROM cards
+        WHERE account_id = ?
+          AND status = 'TRADED'
+          AND traded_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`,
       [accountId],
     );
 
