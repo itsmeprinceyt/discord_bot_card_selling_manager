@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Copy, Search } from "lucide-react";
+import { ArrowLeft, Copy, Search, Loader2 } from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import ConfirmDialog from "../../../(components)/ConfirmDialog";
@@ -42,6 +42,12 @@ export default function BuyersPage() {
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
+  // Loading state for the confirm dialog's async action (mark-active-done).
+  const [confirmLoading, setConfirmLoading] = useState(false);
+
+  // Synchronous double-submit guard for the search form.
+  const searchSubmittingRef = useRef(false);
+
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
     title: "",
@@ -55,7 +61,12 @@ export default function BuyersPage() {
 
   const doSearch = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // ── Synchronous guard ────────────────────────────────────────────────
+    if (searchSubmittingRef.current || loading) return;
     if (!search.trim()) return;
+
+    searchSubmittingRef.current = true;
     setLoading(true);
     setMsg("");
     setError("");
@@ -76,6 +87,7 @@ export default function BuyersPage() {
     } finally {
       setSearched(true);
       setLoading(false);
+      searchSubmittingRef.current = false;
     }
   };
 
@@ -108,13 +120,17 @@ export default function BuyersPage() {
       confirmText: deleteFromDiscord ? "Mark Done & Delete" : "Mark Done",
       variant: deleteFromDiscord ? "danger" : "default",
       onConfirm: async () => {
+        // ConfirmDialog itself blocks double-clicks via its internal ref.
+        // We track `confirmLoading` here so the dialog shows "Working…"
+        // and the underlying page buttons stay disabled until the batch
+        // of API calls finishes.
+        setConfirmLoading(true);
         try {
           for (const order of activeOrders) {
             await axios.patch(
               `/api/dashboard/accounts/${accountId}/orders/${order.id}`,
               {
                 action: "complete",
-                completed_cards: `${order.card.card_code} (${order.card.price_tier} ${order.card.currency_type || "silver"})`,
                 delete_from_discord: deleteFromDiscord,
               },
               { withCredentials: true },
@@ -128,6 +144,7 @@ export default function BuyersPage() {
         } catch (err) {
           setError(getAxiosErrorMessage(err, "Failed to mark done"));
         } finally {
+          setConfirmLoading(false);
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
@@ -229,7 +246,8 @@ export default function BuyersPage() {
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={() => router.push(`/dashboard/${accountId}`)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 cursor-pointer"
+            disabled={confirmLoading}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <ArrowLeft size={16} />
           </button>
@@ -254,15 +272,24 @@ export default function BuyersPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Discord User ID"
-              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 py-2.5 pl-10 pr-4 text-sm text-neutral-100 placeholder-neutral-600 outline-none transition focus:border-neutral-600"
+              disabled={loading}
+              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 py-2.5 pl-10 pr-4 text-sm text-neutral-100 placeholder-neutral-600 outline-none transition focus:border-neutral-600 disabled:opacity-60 disabled:cursor-not-allowed"
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="rounded-lg bg-neutral-100 px-6 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 shrink-0 cursor-pointer"
+            aria-busy={loading}
+            className="rounded-lg bg-neutral-100 px-6 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed shrink-0 cursor-pointer flex items-center justify-center gap-2 min-w-25"
           >
-            {loading ? "Searching..." : "Search"}
+            {loading ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Searching...
+              </>
+            ) : (
+              "Search"
+            )}
           </button>
         </form>
 
@@ -297,31 +324,31 @@ export default function BuyersPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={copyCodesOnly}
-                  disabled={activeCount === 0}
-                  className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 cursor-pointer"
+                  disabled={activeCount === 0 || confirmLoading}
+                  className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <Copy size={14} />
                   {copiedCodes ? "Copied!" : "Copy Codes"}
                 </button>
                 <button
                   onClick={copyWithSummary}
-                  disabled={activeCount === 0}
-                  className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 cursor-pointer"
+                  disabled={activeCount === 0 || confirmLoading}
+                  className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <Copy size={14} />
                   {copiedSummary ? "Copied!" : "Copy + Summary"}
                 </button>
                 <button
                   onClick={() => handleMarkActiveDone(false)}
-                  disabled={activeCount === 0}
-                  className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 cursor-pointer"
+                  disabled={activeCount === 0 || confirmLoading}
+                  className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   Mark Active Done
                 </button>
                 <button
                   onClick={() => handleMarkActiveDone(true)}
-                  disabled={activeCount === 0}
-                  className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 disabled:opacity-50 cursor-pointer"
+                  disabled={activeCount === 0 || confirmLoading}
+                  className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   Mark Active Done + Delete
                 </button>
@@ -430,6 +457,7 @@ export default function BuyersPage() {
         message={confirmDialog.message}
         confirmText={confirmDialog.confirmText}
         variant={confirmDialog.variant}
+        loading={confirmLoading}
       />
     </main>
   );
