@@ -115,6 +115,8 @@ export default function TradeSheetPage() {
           fetchData();
         } catch (err) {
           toast.error(getAxiosErrorMessage(err, "Failed to mark done"));
+        } finally {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
@@ -142,6 +144,8 @@ export default function TradeSheetPage() {
           fetchData();
         } catch (err) {
           toast.error(getAxiosErrorMessage(err, "Failed to remove order"));
+        } finally {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
