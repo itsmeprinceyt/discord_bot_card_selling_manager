@@ -10,14 +10,15 @@ import { generateULID } from "../../../../../../../utils/generateULID.util";
  * Per-order action endpoint.
  *
  * Body:
- *   { action: "complete" }
+ *   { action: "complete", delete_from_discord?: boolean }
  *   { action: "cancel" }
  *   { action: "cancel-first" }
  *
- * - complete      → mark order COMPLETED, mark its card TRADED (with
- *                   `traded_for` derived from the card row), cancel any
- *                   other WAITING orders for the same card (the card was
- *                   traded to this buyer, so the waitlist is moot).
+ * - complete      → mark order COMPLETED (+ deleted if delete_from_discord),
+ *                   mark its card TRADED (with `traded_for` derived from the
+ *                   card row), cancel any other WAITING orders for the same
+ *                   card (the card was traded to this buyer, so the waitlist
+ *                   is moot).
  * - cancel        → mark order CANCELLED (only if currently WAITING), shift
  *                   down subsequent WAITING orders so positions stay
  *                   contiguous, then delete the card entirely if it now has
@@ -25,22 +26,14 @@ import { generateULID } from "../../../../../../../utils/generateULID.util";
  * - cancel-first  → same as cancel; kept as a distinct action for the "Cancel
  *                   First" button on the card page.
  *
- * Orphaned-card deletion:
- *   When the last WAITING order for a PENDING card is cancelled, the card
- *   is left with no active buyers. Rather than keep a useless PENDING card
- *   hanging around, this endpoint deletes it. The cascade `ON DELETE CASCADE`
- *   on `orders.card_id` removes any historical CANCELLED orders tied to the
- *   card (COMPLETED orders cannot exist on a PENDING card under normal flow).
+ * `delete_from_discord` semantics (orders.deleted column):
+ *   - true  → deleted = TRUE  (bot will remove the completed order row from Discord)
+ *   - false → deleted = FALSE (order kept, still visible as a completed order)
  *
- * The former `orders.completed_cards` column has been dropped —
- * `cards.traded_for` is the only place the trade description lives now,
- * and it is populated from the card row server-side, not from the client.
- *
- * Safety guards:
- *   • COMPLETED orders cannot be touched (must use /undo).
- *   • CANCELLED orders cannot be touched.
- *   • Only WAITING orders are eligible for either action.
- *   • Cards are only deleted when they're PENDING and have no WAITING orders.
+ * NOTE: orders has UNIQUE(buyer_id, card_id). A completed + flagged order
+ * still occupies that (buyer, card) slot — same as a CANCELLED order does.
+ * If the same buyer later wants the same card again, the (buyer, card)
+ * slot must be freed (order row hard-deleted, or the constraint relaxed).
  */
 export async function PATCH(
   req: Request,
@@ -60,6 +53,7 @@ export async function PATCH(
 
     const body = await req.json().catch(() => ({}));
     const { action } = body ?? {};
+    const deleteFromDiscord: boolean = Boolean(body?.delete_from_discord);
 
     if (!action) {
       return NextResponse.json(
@@ -82,7 +76,7 @@ export async function PATCH(
       );
     }
 
-    // ── Fetch order + card details (for traded_for derivation) ──────────
+    // ── Fetch order + card details ──────────────────────────────────────
     const [orders] = await pool.execute<RowDataPacket[]>(
       `SELECT o.id, o.card_id, o.status, o.queue_position,
               c.card_code, c.price_tier, c.currency_type
@@ -121,9 +115,6 @@ export async function PATCH(
 
     // ── Complete: mark order done, mark card traded, cancel waitlist ────
     if (action === "complete") {
-      // Derive the trade description from the card row — the client no
-      // longer sends `completed_cards`, and `orders.completed_cards` no
-      // longer exists. `cards.traded_for` remains as the record of trade.
       const tradedFor = `${order.card_code} (${order.price_tier} ${
         order.currency_type || "silver"
       })`;
@@ -132,12 +123,14 @@ export async function PATCH(
       try {
         await conn.beginTransaction();
 
+        // `deleted` is set here based on delete_from_discord.
         const [completeRes]: any = await conn.execute(
           `UPDATE orders
            SET status = 'COMPLETED',
-               completed_at = NOW()
+               completed_at = NOW(),
+               deleted = ?
            WHERE id = ? AND account_id = ? AND status = 'WAITING'`,
-          [orderId, accountId],
+          [deleteFromDiscord ? 1 : 0, orderId, accountId],
         );
 
         if (completeRes.affectedRows === 0) {
@@ -167,6 +160,10 @@ export async function PATCH(
           [order.card_id, accountId, orderId],
         );
 
+        const auditDesc = deleteFromDiscord
+          ? `Order ${orderId} marked as completed (card traded) and flagged for Discord deletion`
+          : `Order ${orderId} marked as completed (card traded)`;
+
         await conn.execute(
           `INSERT INTO audit_logs (id, user_id, account_id, action, entity_type, description)
            VALUES (?, ?, ?, 'ORDER_COMPLETED', 'ORDER', ?)`,
@@ -174,7 +171,7 @@ export async function PATCH(
             generateULID({ prefix: "log", separator: "_", maxLength: 40 }),
             userId,
             accountId,
-            `Order ${orderId} marked as completed (card traded)`,
+            auditDesc,
           ],
         );
 
@@ -197,7 +194,6 @@ export async function PATCH(
       try {
         await conn.beginTransaction();
 
-        // 1. Cancel the order (only if still WAITING)
         const [cancelRes]: any = await conn.execute(
           `UPDATE orders
            SET status = 'CANCELLED'
@@ -213,7 +209,6 @@ export async function PATCH(
           );
         }
 
-        // 2. Shift down subsequent WAITING orders to keep positions contiguous
         await conn.execute(
           `UPDATE orders
            SET queue_position = queue_position - 1
@@ -223,10 +218,6 @@ export async function PATCH(
           [order.card_id, accountId, order.queue_position],
         );
 
-        // 3. If the card now has no WAITING orders left and is still
-        //    PENDING, delete it entirely. The ON DELETE CASCADE on
-        //    orders.card_id will remove any historical CANCELLED orders
-        //    for this card too — the audit log below preserves the story.
         const [deleteRes]: any = await conn.execute(
           `DELETE c FROM cards c
            WHERE c.id = ? AND c.account_id = ? AND c.status = 'PENDING'
@@ -239,7 +230,6 @@ export async function PATCH(
 
         cardDeleted = deleteRes.affectedRows > 0;
 
-        // 4. Audit log — single merged entry (matches "option B")
         const baseDesc =
           action === "cancel-first"
             ? `First-position order ${orderId} cancelled`

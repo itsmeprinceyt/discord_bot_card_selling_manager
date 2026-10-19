@@ -14,9 +14,10 @@ import { generateULID } from "../../../../../../../utils/generateULID.util";
  * - Sets `deleted = TRUE` on the completed order when
  *   `delete_from_discord = true` (so the Completed page's "hide deleted"
  *   filter works as expected), otherwise leaves `deleted = FALSE`.
- * - Writes the trade value to `cards.traded_for`. The former
- *   `orders.completed_cards` column has been dropped — the Completed page
- *   now reads `cards.traded_for` via JOIN.
+ * - Writes the trade value to `cards.traded_for`. It is derived server-side
+ *   from the card row (`<card_code> (<tier> <currency>)`) so the client
+ *   cannot lie about it. If the client explicitly sends `completed_cards`,
+ *   that value overrides the derived one (backwards compat).
  * - Cancels every OTHER waiting order for the same card.
  * - Marks the card as TRADED.
  * - Writes an audit log entry.
@@ -38,7 +39,7 @@ export async function POST(
     }
 
     const body = await req.json();
-    const { card_id, completed_cards, delete_from_discord } = body;
+    const { card_id, completed_cards, delete_from_discord } = body ?? {};
 
     if (!card_id) {
       return NextResponse.json(
@@ -109,7 +110,7 @@ export async function POST(
       if (pos1) {
         completedDesc = pos1.discord_id;
 
-        // Complete the order — note: no `completed_cards` column anymore
+        // Complete the order
         await conn.execute(
           `UPDATE orders
            SET status = 'COMPLETED',
@@ -137,24 +138,33 @@ export async function POST(
         );
       }
 
-      // 3. Mark card as TRADED — this is where the trade description lives
+      // 3. Derive traded_for server-side. Client-supplied value overrides
+      //    only if explicitly provided (backwards compat).
+      const derivedTradedFor = `${card.card_code} (${card.price_tier} ${
+        card.currency_type || "silver"
+      })`;
+      const tradedFor =
+        typeof completed_cards === "string" && completed_cards.trim().length > 0
+          ? completed_cards.trim()
+          : derivedTradedFor;
+
       await conn.execute(
         `UPDATE cards
          SET status = 'TRADED',
              traded_for = ?,
              traded_at = NOW()
          WHERE id = ? AND account_id = ?`,
-        [completed_cards || null, card_id, accountId],
+        [tradedFor, card_id, accountId],
       );
 
       // 4. Audit log
       const description = delete_from_discord
         ? `Card ${card.card_code} marked as traded and deleted from Discord${
             completedDesc ? ` to <@${completedDesc}>` : ""
-          } - Traded for: ${completed_cards || "—"}`
+          } - Traded for: ${tradedFor}`
         : `Card ${card.card_code} marked as traded${
             completedDesc ? ` to <@${completedDesc}>` : ""
-          } - Traded for: ${completed_cards || "—"}`;
+          } - Traded for: ${tradedFor}`;
 
       await conn.execute(
         `INSERT INTO audit_logs (id, user_id, account_id, action, entity_type, description)

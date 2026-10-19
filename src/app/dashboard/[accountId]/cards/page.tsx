@@ -244,7 +244,7 @@ export default function CardsPage() {
         setConfirmLoading(true);
         try {
           await axios.post(
-            `/api/dashboard/accounts/${accountId}/cards/mark-traded`,
+            `/api/dashboard/accounts/${accountId}/cards/mark-trade`,
             {
               card_id: card.id,
               delete_from_discord: deleteFromDiscord,
