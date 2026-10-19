@@ -9,7 +9,6 @@ import {
   Database,
   Home,
   LayoutDashboard,
-  ShieldCheck,
   ScrollText,
   KeyRound,
   LogOut,
@@ -46,7 +45,7 @@ const ADMIN_LINKS: NavLink[] = [
   {
     href: "/admin",
     label: "Dashboard",
-    icon: ShieldCheck,
+    icon: LayoutDashboard,
     exact: true,
   },
   { href: "/admin/invite-code", label: "Invite Code", icon: KeyRound },
