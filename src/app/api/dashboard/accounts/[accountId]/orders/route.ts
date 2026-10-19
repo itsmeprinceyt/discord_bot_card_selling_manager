@@ -8,6 +8,7 @@ import {
   GameType,
   getValidCurrencies,
 } from "../../../../../../utils/Dashboard/accountLabels";
+import { invalidateOrderMutationCaches } from "../../../../../../services/RedisKey.service";
 
 interface AccountRow extends RowDataPacket {
   id: string;
@@ -31,19 +32,6 @@ interface OrderRow extends RowDataPacket {
   queue_position: number;
 }
 
-/**
- * Adds a single order (buyer + card) to an account.
- *
- * Card price handling — the fix:
- *   The card's `price_tier` and `currency_type` are updated whenever the card
- *   already exists and is NOT `TRADED`. This includes PENDING and CANCELLED
- *   cards. Without this, re-adding a card whose only order was cancelled (which
- *   leaves the card itself in PENDING status) would silently keep the OLD
- *   price the user had entered previously.
- *
- *   TRADED cards are still rejected — their price is historical and rewriting
- *   it would corrupt the trade record.
- */
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ accountId: string }> },
@@ -118,7 +106,7 @@ export async function POST(
       );
     }
 
-    // ── Card (get or create, update price when not TRADED) ──────────────
+    // ── Card (get or create) ────────────────────────────────────────────
     const [cards] = await pool.execute<CardRow[]>(
       "SELECT id, status, currency_type, price_tier FROM cards WHERE card_code = ? AND account_id = ? LIMIT 1",
       [trimCode, accountId],
@@ -127,14 +115,12 @@ export async function POST(
     let cardId = card?.id;
 
     if (!card) {
-      // Brand new card — insert with the price the user entered
       cardId = generateULID({ prefix: "crd", separator: "_", maxLength: 40 });
       await pool.execute(
         "INSERT INTO cards (id, account_id, card_code, price_tier, currency_type, status) VALUES (?, ?, ?, ?, ?, 'PENDING')",
         [cardId, accountId, trimCode, tier, finalCurrency],
       );
     } else if (card.status === "TRADED") {
-      // Historical trade — reject (can't silently rewrite past price)
       return NextResponse.json(
         {
           ok: false,
@@ -143,17 +129,13 @@ export async function POST(
         { status: 400 },
       );
     } else {
-      // ★ FIX: card is PENDING or CANCELLED — always update to the new
-      //   price/currency the user just entered, and ensure status = PENDING.
-      //   The old code only did this for CANCELLED cards, leaving PENDING
-      //   cards stuck at whatever price was set the first time.
       await pool.execute(
         "UPDATE cards SET status = 'PENDING', currency_type = ?, price_tier = ? WHERE id = ? AND account_id = ?",
         [finalCurrency, tier, cardId, accountId],
       );
     }
 
-    // ── Order (reactivate if CANCELLED, reject if already active) ───────
+    // ── Order (reactivate if CANCELLED, reject if active) ───────────────
     const [existingOrders] = await pool.execute<OrderRow[]>(
       "SELECT id, status, queue_position FROM orders WHERE buyer_id = ? AND card_id = ? LIMIT 1",
       [buyerId, cardId],
@@ -169,7 +151,6 @@ export async function POST(
         const queuePosition =
           lastOrders.length > 0 ? lastOrders[0].queue_position + 1 : 1;
 
-        // Reset the order fully — clear any stale completion/deletion markers
         await pool.execute(
           `UPDATE orders
            SET status = 'WAITING',
@@ -179,6 +160,12 @@ export async function POST(
            WHERE id = ? AND account_id = ?`,
           [queuePosition, existingOrder.id, accountId],
         );
+
+        try {
+          await invalidateOrderMutationCaches(accountId, trimDiscord, trimCode);
+        } catch (e) {
+          console.error("order-reactivate cache invalidate failed:", e);
+        }
 
         return NextResponse.json({
           ok: true,
@@ -215,6 +202,12 @@ export async function POST(
       "INSERT INTO orders (id, account_id, buyer_id, card_id, queue_position, status) VALUES (?, ?, ?, ?, ?, 'WAITING')",
       [orderId, accountId, buyerId, cardId, queuePosition],
     );
+
+    try {
+      await invalidateOrderMutationCaches(accountId, trimDiscord, trimCode);
+    } catch (e) {
+      console.error("order-create cache invalidate failed:", e);
+    }
 
     return NextResponse.json({
       ok: true,

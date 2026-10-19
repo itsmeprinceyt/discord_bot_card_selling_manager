@@ -5,19 +5,9 @@ import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../../../../auth/[...nextauth]/route";
 import { getPool } from "../../../../../../../lib/Database/main.db";
 import { generateULID } from "../../../../../../../utils/generateULID.util";
+import { getRedis } from "../../../../../../../lib/Redis/redis.config";
+import { RedisKeyService } from "../../../../../../../services/RedisKey.service";
 
-/**
- * Explicit card price / currency update.
- *
- * Used when the user edits a card's price directly (rather than re-adding the
- * card, which is handled by the order POST endpoint).
- *
- * Guards:
- *   • The update is scoped to the account (`account_id = ?`) — no cross-account
- *     card tampering even if a card_id is guessed.
- *   • `price_tier` must be a positive integer if provided.
- *   • `currency_type` must be a non-empty string if provided.
- */
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ accountId: string; cardId: string }> },
@@ -39,7 +29,6 @@ export async function PATCH(
 
     const pool = await getPool();
 
-    // Ownership + fetch current card
     const [cards] = await pool.execute<RowDataPacket[]>(
       "SELECT card_code, price_tier, currency_type FROM cards WHERE id = ? AND account_id = ? LIMIT 1",
       [cardId, accountId],
@@ -52,7 +41,6 @@ export async function PATCH(
     }
     const card = cards[0];
 
-    // Validate inputs before building the dynamic update
     const hasPrice =
       price_tier !== undefined && price_tier !== null && price_tier !== "";
     const parsedPrice = hasPrice ? Number(price_tier) : null;
@@ -92,7 +80,6 @@ export async function PATCH(
       updateParams,
     );
 
-    // Audit log with accurate before/after
     const oldPrice = Number(card.price_tier);
     const oldCurrency = card.currency_type;
     const newPrice = hasPrice ? parsedPrice : oldPrice;
@@ -117,6 +104,16 @@ export async function PATCH(
           `Card ${card.card_code} updated: ${changes.join(", ")}`,
         ],
       );
+    }
+
+    // Bust card_single cache — price/currency part of the cached payload.
+    try {
+      const redis = await getRedis();
+      await redis.del(
+        RedisKeyService.cardSingle(accountId, card.card_code).redis_key,
+      );
+    } catch (e) {
+      console.error("card price update cache invalidate failed:", e);
     }
 
     return NextResponse.json({ ok: true });

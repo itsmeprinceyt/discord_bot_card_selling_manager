@@ -4,7 +4,15 @@ import { getServerSession } from "next-auth";
 import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../../../auth/[...nextauth]/route";
 import { getPool } from "../../../../../../lib/Database/main.db";
+import { getRedis } from "../../../../../../lib/Redis/redis.config";
+import { RedisKeyService } from "../../../../../../services/RedisKey.service";
 import { AuditLogSingleServerRow } from "../../../../../../types/AuditLog/auditLog.types";
+
+interface AuditLogsPayload {
+  logs: AuditLogSingleServerRow[];
+  total: number;
+  pages: number;
+}
 
 export async function GET(
   req: Request,
@@ -32,7 +40,7 @@ export async function GET(
 
     const pool = await getPool();
 
-    // Verify Ownership
+    // Verify Ownership — always hit DB, cache must never bypass auth.
     const [accounts] = await pool.execute<RowDataPacket[]>(
       "SELECT id FROM accounts WHERE id = ? AND user_id = ? LIMIT 1",
       [accountId, userId],
@@ -44,9 +52,28 @@ export async function GET(
       );
     }
 
+    const { redis_key: logsKey, redis_ttl: logsTtl } =
+      RedisKeyService.auditLogs(accountId, page, actionFilter, entityFilter);
+
+    const redis = await getRedis();
+
+    // ── Cache read ──────────────────────────────────────────────────────
+    try {
+      const cached = await redis.get<string>(logsKey);
+      if (cached) {
+        const parsed =
+          typeof cached === "string"
+            ? (JSON.parse(cached) as AuditLogsPayload)
+            : (cached as AuditLogsPayload);
+        return NextResponse.json({ ok: true, ...parsed });
+      }
+    } catch (cacheErr) {
+      console.error("GET audit logs cache read failed:", cacheErr);
+    }
+
+    // ── Cache miss → hit DB ─────────────────────────────────────────────
     // Build Query Filters
     let whereClause = "a.account_id = ?";
-
     const queryParams: any[] = [accountId];
 
     if (actionFilter) {
@@ -64,7 +91,7 @@ export async function GET(
       `SELECT COUNT(*) as total FROM audit_logs a WHERE ${whereClause}`,
       queryParams,
     );
-    const total = countResult[0].total;
+    const total = Number(countResult[0].total);
     const pages = Math.ceil(total / limit);
 
     // 2. Fetch Data
@@ -84,7 +111,16 @@ export async function GET(
       [...queryParams, limit, offset],
     );
 
-    return NextResponse.json({ ok: true, logs, total, pages });
+    const payload: AuditLogsPayload = { logs, total, pages };
+
+    // ── Cache write ─────────────────────────────────────────────────────
+    try {
+      await redis.set(logsKey, JSON.stringify(payload), { ex: logsTtl });
+    } catch (cacheErr) {
+      console.error("GET audit logs cache write failed:", cacheErr);
+    }
+
+    return NextResponse.json({ ok: true, ...payload });
   } catch (err) {
     console.error("GET activity logs failed:", err);
     return NextResponse.json(
