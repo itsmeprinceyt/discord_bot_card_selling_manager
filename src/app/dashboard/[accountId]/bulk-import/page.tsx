@@ -19,6 +19,10 @@ import {
   GameType,
   getValidCurrencies,
 } from "../../../../utils/Dashboard/accountLabels";
+import {
+  extractOrders,
+  cleanBulkLine,
+} from "../../../../utils/Dashboard/bulkImportParser";
 import { BulkImportResult } from "../../../../types/BulkImport.types";
 
 export default function BulkImportPage() {
@@ -41,6 +45,10 @@ export default function BulkImportPage() {
   const [priceTier, setPriceTier] = useState("");
   const [rawText, setRawText] = useState("");
   const [extracted, setExtracted] = useState("");
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const [otherCurrencies, setOtherCurrencies] = useState<
+    Record<string, number>
+  >({});
   const [copied, setCopied] = useState(false);
 
   const [undoStack, setUndoStack] = useState<string[]>([]);
@@ -48,7 +56,6 @@ export default function BulkImportPage() {
   const lastShiftTapRef = useRef<number>(0);
   const DOUBLE_TAP_THRESHOLD = 400;
 
-  // Synchronous double-submit guard — checked before setLoading can flush.
   const submittingRef = useRef(false);
 
   useEffect(() => {
@@ -96,10 +103,6 @@ export default function BulkImportPage() {
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // ── Synchronous guard ────────────────────────────────────────────────
-    // Placed BEFORE any state update so two rapid clicks / Enter presses in
-    // the same tick cannot both proceed. setLoading(true) is async, so
-    // relying on it alone is not sufficient.
     if (submittingRef.current) return;
     if (!text.trim()) return;
 
@@ -135,50 +138,7 @@ export default function BulkImportPage() {
     setText((currentText) => {
       if (!currentText.trim()) return currentText;
       setUndoStack((prevStack) => [...prevStack, currentText]);
-
-      const commandsToRemove = [
-        "sv",
-        "s",
-        "view",
-        "show",
-        "info",
-        "card",
-        "c",
-        "v",
-        "lookup",
-        "l",
-        "get",
-        "check",
-      ];
-      const currencyWordsToRemove =
-        /^(silver|silv|silvers?|gold|gld|wist|wists?|tickets?)$/i;
-
-      const lines = currentText.split("\n");
-      const cleanedLines = lines.map((line) => {
-        let parts = line.trim().split(/\s+/);
-        if (parts.length < 3) return line;
-
-        parts = parts.filter(
-          (part) => !commandsToRemove.includes(part.toLowerCase()),
-        );
-        parts = parts.filter((part) => !currencyWordsToRemove.test(part));
-        if (parts.length < 3) return line;
-
-        const discordId = parts[0];
-        const cardCode = parts[1];
-        let priceTier = parts[2];
-
-        priceTier = priceTier
-          .replace(/s(i(l(v(e(r)?)?)?)?)?$/i, "")
-          .replace(/g(o(l(d)?)?)?$/i, "")
-          .replace(/w(i(s(t)?)?)?$/i, "")
-          .replace(/t(i(c(k(e(t(s)?)?)?)?)?)?$/i, "")
-          .trim();
-
-        return `${discordId} ${cardCode} ${priceTier}`;
-      });
-
-      return cleanedLines.join("\n");
+      return currentText.split("\n").map(cleanBulkLine).join("\n");
     });
   }, []);
 
@@ -198,56 +158,20 @@ export default function BulkImportPage() {
   );
 
   const extractCardCodes = () => {
-    if (!buyerId.trim() || !rawText.trim() || !priceTier.trim()) return;
+    if (!rawText.trim()) return;
 
     const buyerMatch = buyerId.match(/<@!?(\d+)>|(\d+)/);
-    const cleanBuyerId = buyerMatch
-      ? buyerMatch[1] || buyerMatch[2]
-      : buyerId.trim();
+    const cleanBuyerId = buyerMatch ? buyerMatch[1] || buyerMatch[2] : "";
 
-    const commonCommands = [
-      "sv",
-      "s",
-      "view",
-      "show",
-      "info",
-      "card",
-      "c",
-      "v",
-      "lookup",
-      "l",
-      "get",
-      "check",
-    ];
-    const currencyWords =
-      /^(silver|silv|silvers?|gold|gld|wist|wists?|w\/\s*wist|w\/\s*wists|tickets?)$/i;
-
-    const lines = rawText.split("\n").filter((line) => line.trim());
-    const cardCodes: string[] = [];
-
-    lines.forEach((line) => {
-      let cleaned = line.replace(/<@!?\d+>/g, "").trim();
-      cleaned = cleaned.replace(/pings me\s*/i, "");
-      const words = cleaned.split(/\s+/).filter((w) => w.length > 0);
-
-      const filteredWords = words.filter((word) => {
-        const lower = word.toLowerCase();
-        if (commonCommands.includes(lower)) return false;
-        if (currencyWords.test(lower)) return false;
-        if (/^\d+(s|g|silver|gold)?$/i.test(lower)) return false;
-        return true;
-      });
-
-      filteredWords.forEach((word) => {
-        if (/^[a-zA-Z0-9_-]{3,}$/.test(word)) cardCodes.push(word);
-      });
+    const output = extractOrders(rawText, {
+      fallbackBuyerId: cleanBuyerId,
+      fallbackAmount: priceTier.trim(),
+      currency: currencyType,
     });
 
-    setExtracted(
-      cardCodes
-        .map((code) => `${cleanBuyerId} ${code} ${priceTier}`)
-        .join("\n"),
-    );
+    setExtracted(output.lines.join("\n"));
+    setSkipped(output.skipped);
+    setOtherCurrencies(output.otherCurrencies);
   };
 
   const copyExtracted = () => {
@@ -261,6 +185,8 @@ export default function BulkImportPage() {
     setPriceTier("");
     setRawText("");
     setExtracted("");
+    setSkipped([]);
+    setOtherCurrencies({});
   };
 
   if (!currencyType) return <CustomLoader />;
@@ -436,7 +362,7 @@ export default function BulkImportPage() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-medium text-neutral-400">
-                  Buyer ID
+                  Buyer ID (fallback)
                 </label>
                 <button
                   type="button"
@@ -458,7 +384,7 @@ export default function BulkImportPage() {
             <div className="flex gap-3">
               <div className="flex-1">
                 <label className="mb-1.5 block text-xs font-medium text-neutral-400">
-                  Price Tier
+                  Price Tier (fallback)
                 </label>
                 <input
                   type="text"
@@ -501,7 +427,7 @@ export default function BulkImportPage() {
 
             <button
               onClick={extractCardCodes}
-              disabled={!buyerId.trim() || !rawText.trim() || !priceTier.trim()}
+              disabled={!rawText.trim()}
               className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               Extract Card Codes
@@ -524,6 +450,36 @@ export default function BulkImportPage() {
               <pre className="text-sm text-neutral-300 whitespace-pre-wrap font-mono">
                 {extracted}
               </pre>
+            </div>
+          )}
+
+          {(skipped.length > 0 || Object.keys(otherCurrencies).length > 0) && (
+            <div className="mt-4 rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+              {Object.keys(otherCurrencies).length > 0 && (
+                <p className="mb-2 text-xs text-amber-400">
+                  Ignored other currencies:{" "}
+                  {Object.entries(otherCurrencies)
+                    .map(([currency, count]) => `${currency} (${count})`)
+                    .join(", ")}
+                </p>
+              )}
+              {skipped.length > 0 && (
+                <>
+                  <div className="mb-2 text-xs font-medium text-neutral-500">
+                    Skipped ({skipped.length})
+                  </div>
+                  <div className="space-y-1">
+                    {skipped.map((line, i) => (
+                      <div
+                        key={i}
+                        className="break-all font-mono text-xs text-red-400"
+                      >
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
