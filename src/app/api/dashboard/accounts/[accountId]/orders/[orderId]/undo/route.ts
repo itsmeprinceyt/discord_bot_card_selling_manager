@@ -5,6 +5,14 @@ import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../../../../../auth/[...nextauth]/route";
 import { getPool } from "../../../../../../../../lib/Database/main.db";
 
+/**
+ * Undo a completed order.
+ *
+ * Reverts the order back to WAITING and its card back to PENDING, clearing
+ * the trade metadata (`traded_at`, `traded_for`) on the card. The former
+ * `orders.completed_cards` column has been dropped, so it is no longer
+ * cleared here.
+ */
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ accountId: string; orderId: string }> },
@@ -46,16 +54,16 @@ export async function PATCH(
 
     const cardId = orders[0].card_id;
 
-    // 1. Revert Order
+    // 1. Revert Order (completed_cards no longer exists on this table)
     await pool.execute(
-      "UPDATE orders SET status = 'WAITING', completed_at = NULL, completed_cards = NULL, deleted = FALSE WHERE id = ?",
-      [orderId],
+      "UPDATE orders SET status = 'WAITING', completed_at = NULL, deleted = FALSE WHERE id = ? AND account_id = ?",
+      [orderId, accountId],
     );
 
     // 2. Revert Card
     await pool.execute(
-      "UPDATE cards SET status = 'PENDING', traded_at = NULL, traded_for = NULL WHERE id = ?",
-      [cardId],
+      "UPDATE cards SET status = 'PENDING', traded_at = NULL, traded_for = NULL WHERE id = ? AND account_id = ?",
+      [cardId, accountId],
     );
 
     return NextResponse.json({ ok: true });

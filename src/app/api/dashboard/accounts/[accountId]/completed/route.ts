@@ -9,8 +9,8 @@ interface OrderRow extends RowDataPacket {
   id: string;
   queue_position: number;
   status: string;
-  completed_at: string;
-  completed_cards: string | null;
+  completed_at: string | null;
+  created_at: string;
   deleted: number;
   buyer_discord_id: string;
   card_code: string;
@@ -70,6 +70,7 @@ export async function GET(
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const search = searchParams.get("search") || "";
     const showDeleted = searchParams.get("showDeleted") !== "false";
+    const hideCompleted = searchParams.get("hideCompleted") === "true";
 
     const limit = 20;
     const offset = (page - 1) * limit;
@@ -88,12 +89,18 @@ export async function GET(
       );
     }
 
-    // Build Query
-    let whereClause = "o.account_id = ? AND o.status = 'COMPLETED'";
+    // ── Build WHERE ───────────────────────────────────────────────────────
+    // Default: ALL statuses (WAITING / CANCELLED / COMPLETED).
+    // `hideCompleted=true` filters COMPLETED out.
+    let whereClause = "o.account_id = ?";
     const queryParams: any[] = [accountId];
 
     if (!showDeleted) {
       whereClause += " AND o.deleted = FALSE";
+    }
+
+    if (hideCompleted) {
+      whereClause += " AND o.status != 'COMPLETED'";
     }
 
     if (search) {
@@ -111,16 +118,16 @@ export async function GET(
       queryParams,
     );
     const total = countResult[0].total;
-    const pages = Math.ceil(total / limit);
+    const pages = Math.max(1, Math.ceil(total / limit));
 
-    // Fetch Data
+    // Fetch Data — completed_cards column has been dropped from orders
     const [rows] = await pool.execute<OrderRow[]>(
       `SELECT 
         o.id,
         o.queue_position,
         o.status,
         o.completed_at,
-        o.completed_cards,
+        o.created_at,
         o.deleted,
         b.discord_id AS buyer_discord_id,
         c.card_code,
@@ -130,7 +137,7 @@ export async function GET(
        JOIN buyers b ON o.buyer_id = b.id
        JOIN cards c ON o.card_id = c.id
        WHERE ${whereClause}
-       ORDER BY o.completed_at DESC
+       ORDER BY COALESCE(o.completed_at, o.created_at) DESC
        LIMIT ? OFFSET ?`,
       [...queryParams, limit, offset],
     );
@@ -140,7 +147,7 @@ export async function GET(
       queue_position: row.queue_position,
       status: row.status,
       completed_at: row.completed_at,
-      completed_cards: row.completed_cards,
+      created_at: row.created_at,
       deleted: Boolean(row.deleted),
       buyer: { discord_id: row.buyer_discord_id },
       card: {
@@ -157,7 +164,7 @@ export async function GET(
       pages,
     });
   } catch (err) {
-    console.error("GET completed orders failed:", err);
+    console.error("GET orders failed:", err);
     return NextResponse.json(
       { ok: false, error: "Failed to fetch" },
       { status: 500 },

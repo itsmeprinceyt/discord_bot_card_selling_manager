@@ -39,6 +39,9 @@ export default function TradeSheetPage() {
   const [grandTotals, setGrandTotals] = useState<Record<string, number>>({});
   const [currencyFilter, setCurrencyFilter] = useState<string>("all");
 
+  // Loading state for the confirm dialog's async action.
+  const [confirmLoading, setConfirmLoading] = useState(false);
+
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
     title: "",
@@ -83,6 +86,7 @@ export default function TradeSheetPage() {
   }, [accountId, fetchData]);
 
   const toggleCheck = (orderId: string) => {
+    if (confirmLoading) return;
     setChecked((prev) => {
       const next = new Set(prev);
       if (next.has(orderId)) next.delete(orderId);
@@ -92,7 +96,7 @@ export default function TradeSheetPage() {
   };
 
   const handleMarkDone = (deleteFromDiscord: boolean) => {
-    if (checked.size === 0) return;
+    if (checked.size === 0 || confirmLoading) return;
 
     setConfirmDialog({
       isOpen: true,
@@ -101,6 +105,7 @@ export default function TradeSheetPage() {
       confirmText: "Confirm",
       variant: deleteFromDiscord ? "danger" : "default",
       onConfirm: async () => {
+        setConfirmLoading(true);
         try {
           await axios.post(
             `/api/dashboard/accounts/${accountId}/trade-sheet/mark-done`,
@@ -112,10 +117,13 @@ export default function TradeSheetPage() {
           );
           setChecked(new Set());
           setMsg(`Orders marked as done successfully.`);
-          fetchData();
+          // Await so the UI stays in "loading" until data is fresh —
+          // avoids a brief flash of stale rows right before the dialog closes.
+          await fetchData();
         } catch (err) {
           toast.error(getAxiosErrorMessage(err, "Failed to mark done"));
         } finally {
+          setConfirmLoading(false);
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
@@ -127,6 +135,8 @@ export default function TradeSheetPage() {
     cardCode: string,
     buyerId: string,
   ) => {
+    if (confirmLoading) return;
+
     setConfirmDialog({
       isOpen: true,
       title: "Remove Order",
@@ -134,6 +144,7 @@ export default function TradeSheetPage() {
       confirmText: "Remove",
       variant: "danger",
       onConfirm: async () => {
+        setConfirmLoading(true);
         try {
           await axios.patch(
             `/api/dashboard/accounts/${accountId}/orders/${orderId}`,
@@ -141,10 +152,11 @@ export default function TradeSheetPage() {
             { withCredentials: true },
           );
           setMsg(`${cardCode} removed.`);
-          fetchData();
+          await fetchData();
         } catch (err) {
           toast.error(getAxiosErrorMessage(err, "Failed to remove order"));
         } finally {
+          setConfirmLoading(false);
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
@@ -236,7 +248,8 @@ export default function TradeSheetPage() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => router.push(`/dashboard/${accountId}`)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 cursor-pointer"
+              disabled={confirmLoading}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <ArrowLeft size={16} />
             </button>
@@ -252,7 +265,8 @@ export default function TradeSheetPage() {
           <div className="flex gap-2 w-full sm:w-auto">
             <button
               onClick={copyAllBuyers}
-              className="flex items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm text-neutral-300 transition hover:bg-neutral-800 hover:text-white w-full sm:w-auto cursor-pointer"
+              disabled={confirmLoading}
+              className="flex items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm text-neutral-300 transition hover:bg-neutral-800 hover:text-white w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               <Copy size={16} />
               {copiedAll ? "Copied All!" : "Copy All"}
@@ -306,7 +320,8 @@ export default function TradeSheetPage() {
             <button
               key={fmt}
               onClick={() => setCopyFormat(fmt)}
-              className={`px-3 py-1.5 text-xs rounded-lg border transition cursor-pointer ${
+              disabled={confirmLoading}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                 copyFormat === fmt
                   ? "border-neutral-600 bg-neutral-800 text-white"
                   : "border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200"
@@ -328,7 +343,8 @@ export default function TradeSheetPage() {
               <select
                 value={currencyFilter}
                 onChange={(e) => setCurrencyFilter(e.target.value)}
-                className="rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-100 outline-none focus:border-neutral-600 cursor-pointer"
+                disabled={confirmLoading}
+                className="rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-100 outline-none focus:border-neutral-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="all">All</option>
                 {availableCurrencies.map((c) => (
@@ -345,13 +361,15 @@ export default function TradeSheetPage() {
           <div className="mb-6 flex flex-col sm:flex-row gap-2">
             <button
               onClick={() => handleMarkDone(false)}
-              className="flex-1 rounded-lg bg-neutral-100 px-4 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-white cursor-pointer"
+              disabled={confirmLoading}
+              className="flex-1 rounded-lg bg-neutral-100 px-4 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               Mark {checked.size} Orders as Done
             </button>
             <button
               onClick={() => handleMarkDone(true)}
-              className="flex-1 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-500/20 cursor-pointer"
+              disabled={confirmLoading}
+              className="flex-1 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               Mark {checked.size} Done + Delete
             </button>
@@ -383,8 +401,10 @@ export default function TradeSheetPage() {
                     </div>
                     <button
                       onClick={() => copyBuyerInfo(buyer)}
-                      className="flex items-center gap-1 text-xs text-neutral-400 hover:text-white transition cursor-pointer shrink-0 ml-2"
-                      disabled={!hasCards && copyFormat !== "ping"}
+                      className="flex items-center gap-1 text-xs text-neutral-400 hover:text-white transition cursor-pointer shrink-0 ml-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={
+                        (!hasCards && copyFormat !== "ping") || confirmLoading
+                      }
                     >
                       <Copy size={14} />{" "}
                       {copiedBuyer === buyer.discord_id ? "Copied!" : "Copy"}
@@ -413,12 +433,19 @@ export default function TradeSheetPage() {
                                     key={code}
                                     className="flex items-center justify-between group pl-2 border-l-2 border-emerald-500/50"
                                   >
-                                    <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                                    <label
+                                      className={`flex items-center gap-2 flex-1 min-w-0 ${
+                                        confirmLoading
+                                          ? "cursor-not-allowed"
+                                          : "cursor-pointer"
+                                      }`}
+                                    >
                                       <input
                                         type="checkbox"
                                         checked={checked.has(orderId)}
                                         onChange={() => toggleCheck(orderId)}
-                                        className="cursor-pointer rounded border-neutral-700 bg-neutral-950 text-emerald-500 focus:ring-emerald-500/20"
+                                        disabled={confirmLoading}
+                                        className="cursor-pointer rounded border-neutral-700 bg-neutral-950 text-emerald-500 focus:ring-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
                                       />
                                       <span className="text-sm text-neutral-300 truncate">
                                         {code}
@@ -435,7 +462,8 @@ export default function TradeSheetPage() {
                                           buyer.discord_id,
                                         )
                                       }
-                                      className="opacity-0 group-hover:opacity-100 text-neutral-600 hover:text-red-400 cursor-pointer p-1 shrink-0 transition"
+                                      disabled={confirmLoading}
+                                      className="opacity-0 group-hover:opacity-100 text-neutral-600 hover:text-red-400 cursor-pointer p-1 shrink-0 transition disabled:opacity-0 disabled:cursor-not-allowed"
                                       title={`Remove ${code}`}
                                     >
                                       <X size={14} />
@@ -464,6 +492,7 @@ export default function TradeSheetPage() {
         message={confirmDialog.message}
         confirmText={confirmDialog.confirmText}
         variant={confirmDialog.variant}
+        loading={confirmLoading}
       />
     </main>
   );

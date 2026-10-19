@@ -18,6 +18,7 @@ import ConfirmDialog from "../ConfirmDialog";
 import { GAME_LABEL, GameType } from "../../../utils/Dashboard/accountLabels";
 import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
 import { AccountItem, SortOption } from "../../../types/AccountsClient.types";
+import CustomLoader from "../CustomLoader";
 
 const SORT_LABEL: Record<SortOption, string> = {
   az: "Name (A–Z)",
@@ -175,13 +176,7 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
   }, [accounts, sortBy]);
 
   if (loading) {
-    return (
-      <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-400">
-        <div className="mx-auto w-full max-w-3xl text-sm">
-          Loading accounts…
-        </div>
-      </main>
-    );
+    return <CustomLoader label="Loading accounts..." />;
   }
 
   /* --------------------------------- UI --------------------------------- */

@@ -2,7 +2,15 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Copy, Undo2, Brush, RotateCcw, Upload } from "lucide-react";
+import {
+  ArrowLeft,
+  Copy,
+  Undo2,
+  Brush,
+  RotateCcw,
+  Upload,
+  Loader2,
+} from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import CustomLoader from "../../../(components)/CustomLoader";
@@ -39,6 +47,9 @@ export default function BulkImportPage() {
 
   const lastShiftTapRef = useRef<number>(0);
   const DOUBLE_TAP_THRESHOLD = 400;
+
+  // Synchronous double-submit guard — checked before setLoading can flush.
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     async function fetchAccount() {
@@ -84,7 +95,15 @@ export default function BulkImportPage() {
 
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // ── Synchronous guard ────────────────────────────────────────────────
+    // Placed BEFORE any state update so two rapid clicks / Enter presses in
+    // the same tick cannot both proceed. setLoading(true) is async, so
+    // relying on it alone is not sufficient.
+    if (submittingRef.current) return;
     if (!text.trim()) return;
+
+    submittingRef.current = true;
     setLoading(true);
     setResult(null);
 
@@ -99,6 +118,7 @@ export default function BulkImportPage() {
     } catch (err) {
       toast.error(getAxiosErrorMessage(err, "Bulk import failed"));
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   };
@@ -251,7 +271,8 @@ export default function BulkImportPage() {
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={() => router.push(`/dashboard/${accountId}`)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 cursor-pointer"
+            disabled={loading}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             <ArrowLeft size={16} />
           </button>
@@ -288,7 +309,8 @@ export default function BulkImportPage() {
             <select
               value={currencyType}
               onChange={(e) => handleCurrencyChange(e.target.value)}
-              className="w-full cursor-pointer rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5 text-sm text-neutral-100 outline-none transition focus:border-neutral-600"
+              disabled={loading}
+              className="w-full cursor-pointer rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5 text-sm text-neutral-100 outline-none transition focus:border-neutral-600 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {currencyOptions.map((opt) => (
                 <option key={opt} value={opt}>
@@ -308,23 +330,24 @@ export default function BulkImportPage() {
               onKeyDown={handleBulkTextareaKeyDown}
               placeholder="123456789 ABC123 300&#10;123456789 DEF456 300&#10;555555555 XYZ999 500"
               rows={10}
-              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5 text-sm text-neutral-100 placeholder-neutral-600 outline-none transition focus:border-neutral-600 resize-y mb-3 font-mono"
+              disabled={loading}
+              className="w-full rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-2.5 text-sm text-neutral-100 placeholder-neutral-600 outline-none transition focus:border-neutral-600 resize-y mb-3 font-mono disabled:opacity-60 disabled:cursor-not-allowed"
             />
 
             <div className="flex gap-3 mb-2">
               <button
                 type="button"
                 onClick={handleUndo}
-                disabled={undoStack.length === 0}
-                className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 cursor-pointer"
+                disabled={loading || undoStack.length === 0}
+                className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
               >
                 <Undo2 size={16} /> Undo
               </button>
               <button
                 type="button"
                 onClick={handleClean}
-                disabled={!text.trim()}
-                className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 cursor-pointer"
+                disabled={loading || !text.trim()}
+                className="flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
               >
                 <Brush size={16} /> Clean
               </button>
@@ -341,10 +364,20 @@ export default function BulkImportPage() {
             <button
               type="submit"
               disabled={loading || !text.trim()}
-              className="w-full cursor-pointer rounded-lg bg-neutral-100 px-4 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 flex items-center justify-center gap-2"
+              aria-busy={loading}
+              className="w-full cursor-pointer rounded-lg bg-neutral-100 px-4 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              <Upload size={16} />
-              {loading ? "Importing..." : "Import Orders"}
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Importing...
+                </>
+              ) : (
+                <>
+                  <Upload size={16} />
+                  Import Orders
+                </>
+              )}
             </button>
           </form>
 
@@ -469,7 +502,7 @@ export default function BulkImportPage() {
             <button
               onClick={extractCardCodes}
               disabled={!buyerId.trim() || !rawText.trim() || !priceTier.trim()}
-              className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+              className="w-full rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2.5 text-sm font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               Extract Card Codes
             </button>

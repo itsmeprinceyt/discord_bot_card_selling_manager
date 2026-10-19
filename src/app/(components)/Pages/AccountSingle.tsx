@@ -92,6 +92,40 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
     },
   ];
 
+  // Split long labels into main label + period sublabel so the card stays
+  // compact and the typography reads cleanly regardless of column width.
+  const statCards: {
+    key: string;
+    label: string;
+    sublabel: string | null;
+    value: number;
+  }[] = [
+    {
+      key: "active-buyers",
+      label: "Active Buyers",
+      sublabel: null,
+      value: stats.activeBuyers,
+    },
+    {
+      key: "cards-to-sell",
+      label: "Cards to Sell",
+      sublabel: null,
+      value: stats.totalCards,
+    },
+    {
+      key: "completed-today",
+      label: "Completed",
+      sublabel: "Today",
+      value: stats.completedToday,
+    },
+    {
+      key: "completed-30d",
+      label: "Completed",
+      sublabel: "Last 30 days",
+      value: stats.completedLast30Days,
+    },
+  ];
+
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100 px-4 py-16">
       <div className="mx-auto w-full max-w-3xl">
@@ -111,41 +145,33 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
           </div>
         </div>
 
-        {/* Stats Grid (No Icons) */}
+        {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-center">
-            <p className="text-3xl font-bold text-white">
-              {stats.activeBuyers}
-            </p>
-            <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
-              Active Buyers
-            </p>
-          </div>
+          {statCards.map((card) => (
+            <div
+              key={card.key}
+              className="rounded-2xl border border-neutral-800 bg-neutral-900 p-5 min-h-28 flex flex-col justify-between"
+            >
+              {/* Label block — top */}
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] text-neutral-400 font-semibold uppercase tracking-wider leading-tight truncate">
+                    {card.label}
+                  </p>
+                </div>
+                {card.sublabel && (
+                  <p className="text-[10px] text-neutral-600 font-medium uppercase tracking-wider leading-tight truncate">
+                    {card.sublabel}
+                  </p>
+                )}
+              </div>
 
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-center">
-            <p className="text-3xl font-bold text-white">{stats.totalCards}</p>
-            <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
-              Total Cards
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-center">
-            <p className="text-3xl font-bold text-white">
-              {stats.completedToday}
-            </p>
-            <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
-              Completed Today
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 flex flex-col justify-center">
-            <p className="text-3xl font-bold text-white">
-              {stats.completedLast30Days}
-            </p>
-            <p className="text-xs text-neutral-500 mt-1 font-medium uppercase tracking-wider">
-              Last 30 Days
-            </p>
-          </div>
+              {/* Value block — bottom */}
+              <p className="text-3xl font-bold text-white tabular-nums leading-none">
+                {card.value.toLocaleString()}
+              </p>
+            </div>
+          ))}
         </div>
 
         {/* Optional info banner */}
