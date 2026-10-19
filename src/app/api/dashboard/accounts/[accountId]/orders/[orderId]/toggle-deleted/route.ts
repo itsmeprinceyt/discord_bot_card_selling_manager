@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import type { RowDataPacket } from "mysql2";
+import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { authOptions } from "../../../../../../auth/[...nextauth]/route";
 import { getPool } from "../../../../../../../../lib/Database/main.db";
 
@@ -32,11 +32,22 @@ export async function PATCH(
         { status: 404 },
       );
 
-    // Toggle deleted status
-    await pool.execute(
+    // Toggle deleted status — only for COMPLETED orders.
+    const [result] = await pool.execute<ResultSetHeader>(
       "UPDATE orders SET deleted = NOT deleted WHERE id = ? AND account_id = ? AND status = 'COMPLETED'",
       [orderId, accountId],
     );
+
+    if (result.affectedRows === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Order could not be toggled. Only completed orders can be toggled.",
+        },
+        { status: 400 },
+      );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

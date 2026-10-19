@@ -22,6 +22,9 @@ interface CountRow extends RowDataPacket {
   total: number;
 }
 
+const VALID_STATUSES = ["all", "WAITING", "CANCELLED", "COMPLETED"] as const;
+type StatusFilter = (typeof VALID_STATUSES)[number];
+
 async function cleanupOldCompletedOrders() {
   try {
     const pool = await getPool();
@@ -69,8 +72,16 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const search = searchParams.get("search") || "";
+
+    const rawStatus = searchParams.get("status") || "all";
+    const statusFilter: StatusFilter = (
+      VALID_STATUSES as readonly string[]
+    ).includes(rawStatus)
+      ? (rawStatus as StatusFilter)
+      : "all";
+
+    // Default: show everything (deleted + non-deleted), matching old behavior.
     const showDeleted = searchParams.get("showDeleted") !== "false";
-    const hideCompleted = searchParams.get("hideCompleted") === "true";
 
     const limit = 20;
     const offset = (page - 1) * limit;
@@ -90,17 +101,16 @@ export async function GET(
     }
 
     // ── Build WHERE ───────────────────────────────────────────────────────
-    // Default: ALL statuses (WAITING / CANCELLED / COMPLETED).
-    // `hideCompleted=true` filters COMPLETED out.
     let whereClause = "o.account_id = ?";
     const queryParams: any[] = [accountId];
 
-    if (!showDeleted) {
-      whereClause += " AND o.deleted = FALSE";
+    if (statusFilter !== "all") {
+      whereClause += " AND o.status = ?";
+      queryParams.push(statusFilter);
     }
 
-    if (hideCompleted) {
-      whereClause += " AND o.status != 'COMPLETED'";
+    if (!showDeleted) {
+      whereClause += " AND o.deleted = FALSE";
     }
 
     if (search) {
@@ -120,7 +130,7 @@ export async function GET(
     const total = countResult[0].total;
     const pages = Math.max(1, Math.ceil(total / limit));
 
-    // Fetch Data — completed_cards column has been dropped from orders
+    // Fetch Data
     const [rows] = await pool.execute<OrderRow[]>(
       `SELECT 
         o.id,

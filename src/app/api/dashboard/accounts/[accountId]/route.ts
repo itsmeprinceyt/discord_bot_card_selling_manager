@@ -55,15 +55,17 @@ export async function GET(
 
     // 2. Fetch Stats
     //
-    // activeBuyers  → unique buyers who still have a WAITING order on a
-    //                 PENDING card. A buyer with 3 pending cards counts once.
+    // activeBuyers → SAME logic as the trade sheet: unique buyers who have
+    //                 at least one WAITING order at queue_position = 1 (i.e.
+    //                 buyers currently holding a first-position order).
     const [activeBuyersRes] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(DISTINCT o.buyer_id) AS count
+      `SELECT COUNT(DISTINCT b.discord_id) AS count
          FROM orders o
-         JOIN cards c ON o.card_id = c.id
+         JOIN buyers b ON o.buyer_id = b.id
         WHERE o.account_id = ?
           AND o.status = 'WAITING'
-          AND c.status = 'PENDING'`,
+          AND o.queue_position = 1
+          AND o.deleted = FALSE`,
       [accountId],
     );
 
