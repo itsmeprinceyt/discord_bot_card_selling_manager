@@ -70,7 +70,6 @@ export default function BuyersPage() {
       setBuyer(data.buyer);
     } catch (err: unknown) {
       setBuyer(null);
-      // Ignore 404, show toast for other errors
       if (!axios.isAxiosError(err) || err.response?.status !== 404) {
         toast.error(getAxiosErrorMessage(err, "Failed to search buyer"));
       }
@@ -110,7 +109,6 @@ export default function BuyersPage() {
       variant: deleteFromDiscord ? "danger" : "default",
       onConfirm: async () => {
         try {
-          // Mark each active order as done
           for (const order of activeOrders) {
             await axios.patch(
               `/api/dashboard/accounts/${accountId}/orders/${order.id}`,
@@ -129,12 +127,13 @@ export default function BuyersPage() {
           await refresh();
         } catch (err) {
           setError(getAxiosErrorMessage(err, "Failed to mark done"));
+        } finally {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
   };
 
-  // Filter Orders
   const getActiveOrders = () => {
     if (!buyer) return [];
     return buyer.orders.filter(
@@ -202,7 +201,6 @@ export default function BuyersPage() {
     setTimeout(() => setCopiedSummary(false), 2000);
   };
 
-  // Grouping Logic
   const groupByTier = (orders: BuyerOrder[]) => {
     const grouped = orders.reduce(
       (acc: Record<number, BuyerOrder[]>, order) => {
@@ -228,7 +226,6 @@ export default function BuyersPage() {
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
       <div className="mx-auto w-full max-w-3xl">
-        {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={() => router.push(`/dashboard/${accountId}`)}
@@ -246,7 +243,6 @@ export default function BuyersPage() {
           </div>
         </div>
 
-        {/* Search Form */}
         <form onSubmit={doSearch} className="flex gap-3 mb-6">
           <div className="relative flex-1">
             <Search
@@ -270,7 +266,6 @@ export default function BuyersPage() {
           </button>
         </form>
 
-        {/* Alerts */}
         {msg && (
           <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
             {msg}
@@ -288,10 +283,8 @@ export default function BuyersPage() {
           </div>
         )}
 
-        {/* Buyer Card */}
         {buyer && (
           <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
-            {/* Buyer Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 bg-neutral-950/50 p-6">
               <div>
                 <div className="text-xs font-medium uppercase tracking-wider text-neutral-500">
@@ -335,7 +328,6 @@ export default function BuyersPage() {
               </div>
             </div>
 
-            {/* Preview */}
             {activeCount > 0 && (
               <div className="border-b border-neutral-800 bg-neutral-950/30 px-6 py-3">
                 <div className="mb-1 text-xs font-medium text-neutral-500">
@@ -348,7 +340,6 @@ export default function BuyersPage() {
             )}
 
             <div className="p-6 space-y-8">
-              {/* Active Cards */}
               <div>
                 <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-emerald-400">
                   <span>▸ Active Cards ({activeCount})</span>
@@ -386,7 +377,6 @@ export default function BuyersPage() {
                 )}
               </div>
 
-              {/* Waitlisted Cards */}
               {waitlistedCount > 0 && (
                 <div>
                   <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-amber-400">

@@ -103,6 +103,8 @@ export default function CardsPage() {
           await refresh();
         } catch (err) {
           setError(getAxiosErrorMessage(err, "Failed to cancel"));
+        } finally {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
@@ -126,6 +128,8 @@ export default function CardsPage() {
           await refresh();
         } catch (err) {
           setError(getAxiosErrorMessage(err, "Failed to remove"));
+        } finally {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
@@ -157,6 +161,8 @@ export default function CardsPage() {
           await refresh();
         } catch (err) {
           setError(getAxiosErrorMessage(err, "Failed to complete order"));
+        } finally {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
@@ -191,6 +197,8 @@ export default function CardsPage() {
           await refresh();
         } catch (err) {
           setError(getAxiosErrorMessage(err, "Failed to mark traded"));
+        } finally {
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
@@ -199,7 +207,6 @@ export default function CardsPage() {
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
       <div className="mx-auto w-full max-w-3xl">
-        {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={() => router.push(`/dashboard/${accountId}`)}
@@ -217,7 +224,6 @@ export default function CardsPage() {
           </div>
         </div>
 
-        {/* Search */}
         <form onSubmit={doSearch} className="flex gap-3 mb-6">
           <div className="relative flex-1">
             <Search
@@ -260,7 +266,6 @@ export default function CardsPage() {
 
         {card && (
           <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
-            {/* Card Header */}
             <div className="border-b border-neutral-800 p-6 bg-neutral-950/50">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
@@ -312,7 +317,6 @@ export default function CardsPage() {
               </div>
             </div>
 
-            {/* Queue */}
             <div className="p-6">
               <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-neutral-500">
                 Queue ({card.orders.length} waiting)
