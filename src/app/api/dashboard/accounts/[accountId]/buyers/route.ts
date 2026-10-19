@@ -4,6 +4,8 @@ import { getServerSession } from "next-auth";
 import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../../../auth/[...nextauth]/route";
 import { getPool } from "../../../../../../lib/Database/main.db";
+import { getRedis } from "../../../../../../lib/Redis/redis.config";
+import { RedisKeyService } from "../../../../../../services/RedisKey.service";
 
 interface BuyerRow extends RowDataPacket {
   id: string;
@@ -51,7 +53,7 @@ export async function GET(
 
     const pool = await getPool();
 
-    // Verify Ownership
+    // Verify ownership — always hit DB, cache never bypasses auth.
     const [accounts] = await pool.execute<RowDataPacket[]>(
       "SELECT id FROM accounts WHERE id = ? AND user_id = ? LIMIT 1",
       [accountId, userId],
@@ -63,13 +65,31 @@ export async function GET(
       );
     }
 
+    const redis = await getRedis();
+
     // --- 1. SEARCH SINGLE BUYER ---
     if (discordId) {
-      const [buyers] = await pool.execute<BuyerRow[]>(
-        "SELECT id, discord_id, created_at FROM buyers WHERE discord_id = ? AND account_id = ? LIMIT 1",
-        [discordId.trim(), accountId],
+      const trimmed = discordId.trim();
+      const { redis_key, redis_ttl } = RedisKeyService.buyerSingle(
+        accountId,
+        trimmed,
       );
 
+      try {
+        const cached = await redis.get<string>(redis_key);
+        if (cached) {
+          const parsed =
+            typeof cached === "string" ? JSON.parse(cached) : cached;
+          return NextResponse.json({ ok: true, ...parsed });
+        }
+      } catch (e) {
+        console.error("buyer_single cache read failed:", e);
+      }
+
+      const [buyers] = await pool.execute<BuyerRow[]>(
+        "SELECT id, discord_id, created_at FROM buyers WHERE discord_id = ? AND account_id = ? LIMIT 1",
+        [trimmed, accountId],
+      );
       if (buyers.length === 0) {
         return NextResponse.json(
           { ok: false, error: "Buyer not found" },
@@ -79,7 +99,6 @@ export async function GET(
 
       const buyer = buyers[0];
 
-      // Fetch buyer's WAITING orders
       const [orders] = await pool.execute<OrderRow[]>(
         `SELECT 
           o.id AS order_id, 
@@ -96,51 +115,86 @@ export async function GET(
         [buyer.id, accountId],
       );
 
-      // Format orders to match old Prisma shape
-      buyer.orders = orders.map((o) => ({
-        id: o.order_id,
-        queue_position: o.queue_position,
-        status: o.status,
-        card: {
-          id: o.card_id,
-          card_code: o.card_code,
-          price_tier: o.price_tier,
-          currency_type: o.currency_type,
+      const payload = {
+        buyer: {
+          id: buyer.id,
+          discord_id: buyer.discord_id,
+          created_at: buyer.created_at,
+          orders: orders.map((o) => ({
+            id: o.order_id,
+            queue_position: o.queue_position,
+            status: o.status,
+            card: {
+              id: o.card_id,
+              card_code: o.card_code,
+              price_tier: o.price_tier,
+              currency_type: o.currency_type,
+            },
+          })),
         },
-      })) as any;
+      };
 
-      return NextResponse.json({ ok: true, buyer });
+      try {
+        await redis.set(redis_key, JSON.stringify(payload), { ex: redis_ttl });
+      } catch (e) {
+        console.error("buyer_single cache write failed:", e);
+      }
+
+      return NextResponse.json({ ok: true, ...payload });
     }
 
     // --- 2. LIST BUYERS (Paginated) ---
-    let whereClause = "account_id = ?";
-    const queryParams: any[] = [accountId];
+    const { redis_key, redis_ttl } = RedisKeyService.buyersList(
+      accountId,
+      page,
+      search,
+    );
 
+    try {
+      const cached = await redis.get<string>(redis_key);
+      if (cached) {
+        const parsed = typeof cached === "string" ? JSON.parse(cached) : cached;
+        return NextResponse.json({ ok: true, ...parsed });
+      }
+    } catch (e) {
+      console.error("buyers_list cache read failed:", e);
+    }
+
+    let whereClause = "b.account_id = ?";
+    const filterParams: any[] = [accountId];
     if (search) {
-      whereClause += " AND discord_id LIKE ?";
-      queryParams.push(`%${search}%`);
+      whereClause += " AND b.discord_id LIKE ?";
+      filterParams.push(`%${search}%`);
     }
 
     const [countRes] = await pool.execute<CountRow[]>(
-      `SELECT COUNT(*) as total FROM buyers WHERE ${whereClause}`,
-      queryParams,
+      `SELECT COUNT(*) as total FROM buyers b WHERE ${whereClause}`,
+      filterParams,
     );
-    const total = countRes[0].total;
-    const pages = Math.ceil(total / limit);
+    const total = Number(countRes[0].total);
+    const pages = Math.max(1, Math.ceil(total / limit));
 
-    // FIXED: Added all selected columns to GROUP BY (ONLY_FULL_GROUP_BY fix)
     const [buyers] = await pool.execute<BuyerRow[]>(
-      `SELECT b.id, b.discord_id, b.created_at, COUNT(o.id) as orders_count
+      `SELECT b.id, b.discord_id, b.created_at,
+              COUNT(CASE WHEN o.status = 'WAITING' AND o.deleted = FALSE THEN 1 END) as orders_count
        FROM buyers b
-       LEFT JOIN orders o ON b.id = o.buyer_id
-       WHERE b.account_id = ?
+       LEFT JOIN orders o ON b.id = o.buyer_id AND o.account_id = b.account_id
+       WHERE ${whereClause}
        GROUP BY b.id, b.discord_id, b.created_at
        ORDER BY b.created_at DESC
        LIMIT ? OFFSET ?`,
-      [accountId, limit, offset],
+      [...filterParams, limit, offset],
     );
 
-    return NextResponse.json({ ok: true, buyers, total, pages });
+    const payload = { buyers, total, pages };
+
+    try {
+      await redis.set(redis_key, JSON.stringify(payload), { ex: redis_ttl });
+    } catch (e) {
+      console.error("buyers_list cache write failed:", e);
+    }
+
+    return NextResponse.json({ ok: true, ...payload });
   } catch (err) {
     console.error("GET buyers failed:", err);
     return NextResponse.json(

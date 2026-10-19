@@ -4,6 +4,8 @@ import { getServerSession } from "next-auth";
 import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../../../auth/[...nextauth]/route";
 import { getPool } from "../../../../../../lib/Database/main.db";
+import { getRedis } from "../../../../../../lib/Redis/redis.config";
+import { RedisKeyService } from "../../../../../../services/RedisKey.service";
 
 interface CardRow extends RowDataPacket {
   id: string;
@@ -48,7 +50,6 @@ export async function GET(
 
     const pool = await getPool();
 
-    // Verify Ownership
     const [accounts] = await pool.execute<RowDataPacket[]>(
       "SELECT id FROM accounts WHERE id = ? AND user_id = ? LIMIT 1",
       [accountId, userId],
@@ -60,12 +61,31 @@ export async function GET(
       );
     }
 
+    const redis = await getRedis();
+
     // --- 1. SEARCH SINGLE CARD ---
     if (cardCode) {
+      const trimmed = cardCode.trim().toLowerCase();
+      const { redis_key, redis_ttl } = RedisKeyService.cardSingle(
+        accountId,
+        trimmed,
+      );
+
+      try {
+        const cached = await redis.get<string>(redis_key);
+        if (cached) {
+          const parsed =
+            typeof cached === "string" ? JSON.parse(cached) : cached;
+          return NextResponse.json({ ok: true, ...parsed });
+        }
+      } catch (e) {
+        console.error("card_single cache read failed:", e);
+      }
+
       const [cards] = await pool.execute<CardRow[]>(
         `SELECT id, card_code, price_tier, currency_type, status, traded_for, created_at 
          FROM cards WHERE card_code = ? AND account_id = ? LIMIT 1`,
-        [cardCode.trim(), accountId],
+        [trimmed, accountId],
       );
 
       if (cards.length === 0) {
@@ -77,7 +97,6 @@ export async function GET(
 
       const card = cards[0];
 
-      // Fetch its waiting orders
       const [orders] = await pool.execute<OrderRow[]>(
         `SELECT o.id, o.queue_position, b.discord_id 
          FROM orders o 
@@ -87,17 +106,27 @@ export async function GET(
         [card.id],
       );
 
-      // Format to match frontend expectations
-      card.orders = orders.map((o) => ({
-        id: o.id,
-        queue_position: o.queue_position,
-        buyer: { discord_id: o.discord_id },
-      })) as any;
+      const payload = {
+        card: {
+          ...card,
+          orders: orders.map((o) => ({
+            id: o.id,
+            queue_position: o.queue_position,
+            buyer: { discord_id: o.discord_id },
+          })),
+        },
+      };
 
-      return NextResponse.json({ ok: true, card });
+      try {
+        await redis.set(redis_key, JSON.stringify(payload), { ex: redis_ttl });
+      } catch (e) {
+        console.error("card_single cache write failed:", e);
+      }
+
+      return NextResponse.json({ ok: true, ...payload });
     }
 
-    // --- 2. LIST CARDS (Paginated) ---
+    // --- 2. LIST CARDS (no cache) ---
     let whereClause = "account_id = ?";
     const queryParams: any[] = [accountId];
 
@@ -114,8 +143,8 @@ export async function GET(
       `SELECT COUNT(*) as total FROM cards WHERE ${whereClause}`,
       queryParams,
     );
-    const total = countRes[0].total;
-    const pages = Math.ceil(total / limit);
+    const total = Number(countRes[0].total);
+    const pages = Math.max(1, Math.ceil(total / limit));
 
     const [cards] = await pool.execute<CardRow[]>(
       `SELECT id, card_code, price_tier, currency_type, status, traded_for, created_at 
@@ -125,7 +154,6 @@ export async function GET(
       [...queryParams, limit, offset],
     );
 
-    // Populate orders for each card
     for (const card of cards) {
       const [orders] = await pool.execute<OrderRow[]>(
         `SELECT o.id, o.queue_position, b.discord_id 

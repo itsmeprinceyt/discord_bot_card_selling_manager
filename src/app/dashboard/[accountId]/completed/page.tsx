@@ -23,6 +23,26 @@ import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
 import { formatDateTime } from "../../../../utils/Formator/formatDateTime.util";
 
 const BOMB_TIMER_SECONDS = 4;
+const STORAGE_KEY = "disc_card_mng";
+
+type StatusFilter = "all" | "WAITING" | "CANCELLED" | "COMPLETED";
+
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "WAITING", label: "Waiting" },
+  { value: "CANCELLED", label: "Cancelled" },
+  { value: "COMPLETED", label: "Completed" },
+];
+
+interface StoredFilters {
+  status: StatusFilter;
+  showDeleted: boolean;
+}
+
+const DEFAULT_FILTERS: StoredFilters = {
+  status: "all",
+  showDeleted: true,
+};
 
 interface Order {
   id: string;
@@ -92,6 +112,35 @@ function StatusBadge({ status }: { status: Order["status"] }) {
   );
 }
 
+/** Read persisted filters from localStorage. Backwards compatible with
+ *  older versions that stored just the status string. */
+function readStoredFilters(): StoredFilters {
+  if (typeof window === "undefined") return DEFAULT_FILTERS;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_FILTERS;
+
+    if (raw.startsWith("{")) {
+      const parsed = JSON.parse(raw) as Partial<StoredFilters>;
+      const status = STATUS_OPTIONS.some((o) => o.value === parsed.status)
+        ? (parsed.status as StatusFilter)
+        : DEFAULT_FILTERS.status;
+      const showDeleted =
+        typeof parsed.showDeleted === "boolean"
+          ? parsed.showDeleted
+          : DEFAULT_FILTERS.showDeleted;
+      return { status, showDeleted };
+    }
+
+    if (STATUS_OPTIONS.some((o) => o.value === raw)) {
+      return { status: raw as StatusFilter, showDeleted: true };
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_FILTERS;
+}
+
 export default function CompletedPage() {
   const params = useParams();
   const router = useRouter();
@@ -105,12 +154,20 @@ export default function CompletedPage() {
   const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showDeleted, setShowDeleted] = useState(true);
-  const [hideCompleted, setHideCompleted] = useState(false);
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [bombTimers, setBombTimers] = useState<Map<string, number>>(new Map());
   const timerIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Refs to avoid stale closures in the bomb-timer interval.
+  const showDeletedRef = useRef(showDeleted);
+  const handleToggleDeletedRef = useRef<(id: string) => void>(() => {});
+
+  useEffect(() => {
+    showDeletedRef.current = showDeleted;
+  }, [showDeleted]);
 
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
@@ -120,6 +177,25 @@ export default function CompletedPage() {
     variant: "default" as "default" | "danger",
     onConfirm: () => {},
   });
+
+  // Hydrate filters from localStorage on mount.
+  useEffect(() => {
+    const stored = readStoredFilters();
+    setStatusFilter(stored.status);
+    setShowDeleted(stored.showDeleted);
+  }, []);
+
+  // Persist both filters to localStorage whenever they change.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ status: statusFilter, showDeleted }),
+      );
+    } catch {
+      // ignore
+    }
+  }, [statusFilter, showDeleted]);
 
   const clearBombTimer = useCallback((orderId: string) => {
     const interval = timerIntervalsRef.current.get(orderId);
@@ -138,7 +214,7 @@ export default function CompletedPage() {
     setLoading(true);
     try {
       const { data } = await axios.get(
-        `/api/dashboard/accounts/${accountId}/completed?page=${page}&search=${search}&showDeleted=${showDeleted}&hideCompleted=${hideCompleted}`,
+        `/api/dashboard/accounts/${accountId}/completed?page=${page}&search=${search}&status=${statusFilter}&showDeleted=${showDeleted}`,
         { withCredentials: true },
       );
       setOrders(data.orders || []);
@@ -149,7 +225,7 @@ export default function CompletedPage() {
     } finally {
       setLoading(false);
     }
-  }, [accountId, page, search, showDeleted, hideCompleted]);
+  }, [accountId, page, search, statusFilter, showDeleted]);
 
   useEffect(() => {
     const load = () => {
@@ -168,6 +244,16 @@ export default function CompletedPage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setSearch(searchInput);
+    setPage(1);
+  };
+
+  const handleStatusChange = (next: StatusFilter) => {
+    setStatusFilter(next);
+    setPage(1);
+  };
+
+  const handleToggleShowDeleted = () => {
+    setShowDeleted((prev) => !prev);
     setPage(1);
   };
 
@@ -195,6 +281,11 @@ export default function CompletedPage() {
     });
   };
 
+  /**
+   * Toggles `deleted` on a COMPLETED order.
+   * Only updates local state if the backend confirms the change
+   * (backend rejects non-COMPLETED orders).
+   */
   const handleToggleDeleted = useCallback(
     async (orderId: string) => {
       setTogglingIds((prev) => new Set(prev).add(orderId));
@@ -208,22 +299,16 @@ export default function CompletedPage() {
         clearBombTimer(orderId);
 
         setOrders((prevOrders) => {
-          const updatedOrders = prevOrders.map((order) =>
+          const updated = prevOrders.map((order) =>
             order.id === orderId
               ? { ...order, deleted: !order.deleted }
               : order,
           );
-          if (!showDeleted)
-            return updatedOrders.filter((order) => !order.deleted);
-          return updatedOrders;
-        });
-
-        setTotal((prevTotal) => {
-          const orderToToggle = orders.find((o) => o.id === orderId);
-          if (orderToToggle) {
-            return orderToToggle.deleted ? prevTotal + 1 : prevTotal - 1;
+          // If "Hide Deleted" mode is active, drop the newly-deleted row.
+          if (!showDeletedRef.current) {
+            return updated.filter((order) => !order.deleted);
           }
-          return prevTotal;
+          return updated;
         });
       } catch (err) {
         toast.error(
@@ -237,8 +322,14 @@ export default function CompletedPage() {
         });
       }
     },
-    [accountId, orders, showDeleted, clearBombTimer],
+    [accountId, clearBombTimer],
   );
+
+  // Keep the ref in sync so the bomb-timer interval always calls the
+  // latest version of handleToggleDeleted.
+  useEffect(() => {
+    handleToggleDeletedRef.current = handleToggleDeleted;
+  }, [handleToggleDeleted]);
 
   const startBombTimer = async (orderId: string, cardCode: string) => {
     try {
@@ -265,7 +356,8 @@ export default function CompletedPage() {
           next.delete(orderId);
           return next;
         });
-        handleToggleDeleted(orderId);
+        // Use ref so we always hit the latest closure.
+        handleToggleDeletedRef.current(orderId);
       } else {
         setBombTimers((prev) => new Map(prev).set(orderId, secondsLeft));
       }
@@ -382,35 +474,39 @@ export default function CompletedPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <button
-              onClick={() => {
-                setHideCompleted(!hideCompleted);
-                setPage(1);
-              }}
-              className={`flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm transition w-full sm:w-auto cursor-pointer ${
-                hideCompleted
-                  ? "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                  : "border-neutral-800 bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
-              }`}
-              title={
-                hideCompleted
-                  ? "Show completed orders again"
-                  : "Hide completed orders"
-              }
+            <label
+              htmlFor="status-filter"
+              className="text-sm font-medium text-neutral-400"
             >
-              {hideCompleted ? <EyeOff size={16} /> : <Eye size={16} />}
-              <span className="hidden sm:inline">
-                {hideCompleted ? "Show Completed" : "Hide Completed Orders"}
-              </span>
-            </button>
+              Status:
+            </label>
+            <select
+              id="status-filter"
+              value={statusFilter}
+              onChange={(e) =>
+                handleStatusChange(e.target.value as StatusFilter)
+              }
+              className="rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 outline-none transition focus:border-neutral-600 cursor-pointer"
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
             <button
-              onClick={() => setShowDeleted(!showDeleted)}
-              className="flex items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 w-full sm:w-auto cursor-pointer"
-              title={showDeleted ? "Hide deleted orders" : "Show all orders"}
+              onClick={handleToggleShowDeleted}
+              className={`flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm transition cursor-pointer ${
+                showDeleted
+                  ? "border-neutral-800 bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                  : "border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+              }`}
+              title={!showDeleted ? "Hide deleted orders" : "Show all orders"}
             >
               {showDeleted ? <Eye size={16} /> : <EyeOff size={16} />}
               <span className="hidden sm:inline">
-                {showDeleted ? "Show All" : "Hide Deleted"}
+                {!showDeleted ? "Show All" : "Hide Deleted"}
               </span>
             </button>
           </div>
@@ -468,8 +564,10 @@ export default function CompletedPage() {
 
         <div className="text-xs text-neutral-500 mb-4">
           {total} {total === 1 ? "order" : "orders"}
-          {hideCompleted && (
-            <span className="ml-2 text-amber-400/80">(completed hidden)</span>
+          {statusFilter !== "all" && (
+            <span className="ml-2 text-amber-400/80">
+              (filtered: {statusFilter.toLowerCase()})
+            </span>
           )}
         </div>
 
@@ -483,7 +581,7 @@ export default function CompletedPage() {
           </p>
         ) : (
           <>
-            {/* Desktop table — horizontal scroll when wider than container */}
+            {/* Desktop table */}
             <div
               className="
                 hidden sm:block
@@ -532,75 +630,90 @@ export default function CompletedPage() {
                           </div>
                         </td>
                       </tr>
-                      {group.orders.map((order) => (
-                        <tr
-                          key={order.id}
-                          className={`hover:bg-neutral-800/50 transition-colors ${order.deleted ? "bg-emerald-950/20" : ""}`}
-                        >
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => handleToggleDeleted(order.id)}
-                              disabled={togglingIds.has(order.id)}
-                              className={`p-1.5 rounded cursor-pointer transition-all disabled:opacity-50 ${
-                                order.deleted
-                                  ? "bg-emerald-900/40 text-emerald-400 hover:bg-emerald-900/60"
-                                  : "bg-red-900/30 text-red-400 hover:bg-red-900/50"
-                              }`}
-                            >
-                              {order.deleted ? (
-                                <Check size={16} />
+                      {group.orders.map((order) => {
+                        const canToggleDeleted = order.status === "COMPLETED";
+                        return (
+                          <tr
+                            key={order.id}
+                            className={`hover:bg-neutral-800/50 transition-colors ${order.deleted ? "bg-emerald-950/20" : ""}`}
+                          >
+                            <td className="px-4 py-3">
+                              {canToggleDeleted ? (
+                                <button
+                                  onClick={() => handleToggleDeleted(order.id)}
+                                  disabled={togglingIds.has(order.id)}
+                                  className={`p-1.5 rounded cursor-pointer transition-all disabled:opacity-50 ${
+                                    order.deleted
+                                      ? "bg-emerald-900/40 text-emerald-400 hover:bg-emerald-900/60"
+                                      : "bg-red-900/30 text-red-400 hover:bg-red-900/50"
+                                  }`}
+                                  title={
+                                    order.deleted
+                                      ? "Restore order"
+                                      : "Mark as deleted"
+                                  }
+                                >
+                                  {order.deleted ? (
+                                    <Check size={16} />
+                                  ) : (
+                                    <Trash size={16} />
+                                  )}
+                                </button>
                               ) : (
-                                <Trash size={16} />
+                                <span className="text-xs text-neutral-700">
+                                  —
+                                </span>
                               )}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3">
-                            <StatusBadge status={order.status} />
-                          </td>
-                          <td className="px-4 py-3 text-neutral-300 text-xs sm:text-sm whitespace-nowrap">
-                            &lt;@{order.buyer.discord_id}&gt;
-                          </td>
-                          <td className="px-4 py-3 text-neutral-100 text-xs sm:text-sm whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <span>{order.card.card_code}</span>
-                              <CopyButton
-                                orderId={order.id}
-                                cardCode={order.card.card_code}
-                              />
-                              <BombButton
-                                orderId={order.id}
-                                cardCode={order.card.card_code}
-                              />
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-neutral-400 text-xs sm:text-sm whitespace-nowrap">
-                            {order.card.price_tier} {order.card.currency_type}
-                          </td>
-                          <td className="px-4 py-3 text-neutral-600 text-xs hidden md:table-cell whitespace-nowrap">
-                            {formatDateTime(getOrderDate(order))}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            {order.status === "COMPLETED" ? (
-                              <button
-                                onClick={() => handleUndo(order.id)}
-                                className="rounded-lg border border-neutral-800 px-2 sm:px-3 py-1 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 whitespace-nowrap cursor-pointer"
-                              >
-                                Undo
-                              </button>
-                            ) : (
-                              <span className="text-xs text-neutral-700">
-                                —
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="px-4 py-3">
+                              <StatusBadge status={order.status} />
+                            </td>
+                            <td className="px-4 py-3 text-neutral-300 text-xs sm:text-sm whitespace-nowrap">
+                              &lt;@{order.buyer.discord_id}&gt;
+                            </td>
+                            <td className="px-4 py-3 text-neutral-100 text-xs sm:text-sm whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <span>{order.card.card_code}</span>
+                                <CopyButton
+                                  orderId={order.id}
+                                  cardCode={order.card.card_code}
+                                />
+                                <BombButton
+                                  orderId={order.id}
+                                  cardCode={order.card.card_code}
+                                />
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-neutral-400 text-xs sm:text-sm whitespace-nowrap">
+                              {order.card.price_tier} {order.card.currency_type}
+                            </td>
+                            <td className="px-4 py-3 text-neutral-600 text-xs hidden md:table-cell whitespace-nowrap">
+                              {formatDateTime(getOrderDate(order))}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {order.status === "COMPLETED" ? (
+                                <button
+                                  onClick={() => handleUndo(order.id)}
+                                  className="rounded-lg border border-neutral-800 px-2 sm:px-3 py-1 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 whitespace-nowrap cursor-pointer"
+                                >
+                                  Undo
+                                </button>
+                              ) : (
+                                <span className="text-xs text-neutral-700">
+                                  —
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </React.Fragment>
                   ))}
                 </tbody>
               </table>
             </div>
 
+            {/* Mobile */}
             <div className="sm:hidden space-y-4">
               {groupedOrders.map((group) => (
                 <div key={`mobile-group-${group.date}`}>
@@ -623,76 +736,90 @@ export default function CompletedPage() {
                     </button>
                   </div>
                   <div className="space-y-3">
-                    {group.orders.map((order) => (
-                      <div
-                        key={order.id}
-                        className={`rounded-xl border p-4 transition-colors ${order.deleted ? "border-emerald-900/50 bg-emerald-950/20" : "border-neutral-800 bg-neutral-900"}`}
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-2 min-w-0 flex-1 mr-3">
-                            <button
-                              onClick={() => handleToggleDeleted(order.id)}
-                              disabled={togglingIds.has(order.id)}
-                              className={`p-1.5 rounded cursor-pointer transition-all shrink-0 disabled:opacity-50 ${
-                                order.deleted
-                                  ? "bg-emerald-900/40 text-emerald-400"
-                                  : "bg-neutral-800 text-neutral-500 hover:text-neutral-300"
-                              }`}
-                            >
-                              {order.deleted ? (
-                                <Check size={16} />
+                    {group.orders.map((order) => {
+                      const canToggleDeleted = order.status === "COMPLETED";
+                      return (
+                        <div
+                          key={order.id}
+                          className={`rounded-xl border p-4 transition-colors ${order.deleted ? "border-emerald-900/50 bg-emerald-950/20" : "border-neutral-800 bg-neutral-900"}`}
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2 min-w-0 flex-1 mr-3">
+                              {canToggleDeleted ? (
+                                <button
+                                  onClick={() => handleToggleDeleted(order.id)}
+                                  disabled={togglingIds.has(order.id)}
+                                  className={`p-1.5 rounded cursor-pointer transition-all shrink-0 disabled:opacity-50 ${
+                                    order.deleted
+                                      ? "bg-emerald-900/40 text-emerald-400"
+                                      : "bg-red-900/30 text-red-400"
+                                  }`}
+                                  title={
+                                    order.deleted
+                                      ? "Restore order"
+                                      : "Mark as deleted"
+                                  }
+                                >
+                                  {order.deleted ? (
+                                    <Check size={16} />
+                                  ) : (
+                                    <Trash size={16} />
+                                  )}
+                                </button>
                               ) : (
-                                <X size={16} />
+                                <span className="p-1.5 shrink-0 text-xs text-neutral-700">
+                                  —
+                                </span>
                               )}
-                            </button>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <div className="text-sm text-neutral-100 font-medium truncate">
-                                  {order.card.card_code}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="text-sm text-neutral-100 font-medium truncate">
+                                    {order.card.card_code}
+                                  </div>
+                                  <CopyButton
+                                    orderId={`mobile-${order.id}`}
+                                    cardCode={order.card.card_code}
+                                  />
+                                  <BombButton
+                                    orderId={`mobile-${order.id}`}
+                                    cardCode={order.card.card_code}
+                                  />
+                                  <StatusBadge status={order.status} />
                                 </div>
-                                <CopyButton
-                                  orderId={`mobile-${order.id}`}
-                                  cardCode={order.card.card_code}
-                                />
-                                <BombButton
-                                  orderId={`mobile-${order.id}`}
-                                  cardCode={order.card.card_code}
-                                />
-                                <StatusBadge status={order.status} />
-                              </div>
-                              <div className="text-xs text-neutral-400 mt-0.5">
-                                {order.card.price_tier}{" "}
-                                {order.card.currency_type}
+                                <div className="text-xs text-neutral-400 mt-0.5">
+                                  {order.card.price_tier}{" "}
+                                  {order.card.currency_type}
+                                </div>
                               </div>
                             </div>
+                            {order.status === "COMPLETED" && (
+                              <button
+                                onClick={() => handleUndo(order.id)}
+                                className="rounded-lg border border-neutral-800 px-3 py-1 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 shrink-0 cursor-pointer"
+                              >
+                                Undo
+                              </button>
+                            )}
                           </div>
-                          {order.status === "COMPLETED" && (
-                            <button
-                              onClick={() => handleUndo(order.id)}
-                              className="rounded-lg border border-neutral-800 px-3 py-1 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 shrink-0 cursor-pointer"
-                            >
-                              Undo
-                            </button>
-                          )}
+                          <div className="text-xs text-neutral-500 space-y-1 ml-9">
+                            <div className="truncate">
+                              Buyer:{" "}
+                              <span className="text-neutral-300">
+                                &lt;@{order.buyer.discord_id}&gt;
+                              </span>
+                            </div>
+                            <div>
+                              {order.status === "COMPLETED"
+                                ? "Completed: "
+                                : "Created: "}
+                              <span className="text-neutral-400">
+                                {formatDateTime(getOrderDate(order))}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-xs text-neutral-500 space-y-1 ml-9">
-                          <div className="truncate">
-                            Buyer:{" "}
-                            <span className="text-neutral-300">
-                              &lt;@{order.buyer.discord_id}&gt;
-                            </span>
-                          </div>
-                          <div>
-                            {order.status === "COMPLETED"
-                              ? "Completed: "
-                              : "Created: "}
-                            <span className="text-neutral-400">
-                              {formatDateTime(getOrderDate(order))}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}

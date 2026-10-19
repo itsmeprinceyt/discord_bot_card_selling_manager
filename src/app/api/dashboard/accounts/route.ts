@@ -9,6 +9,12 @@ import {
   GameType,
   GAME_LABEL,
 } from "../../../../utils/Dashboard/accountLabels";
+import {
+  invalidateRedisKey,
+  invalidateUserRedisKey,
+  RedisKeyService,
+} from "../../../../services/RedisKey.service";
+import { getRedis } from "../../../../lib/Redis/redis.config";
 
 interface AccountRow extends RowDataPacket {
   id: string;
@@ -20,6 +26,14 @@ interface AccountRow extends RowDataPacket {
 
 interface IdRow extends RowDataPacket {
   id: string;
+}
+
+interface AccountListItem {
+  id: string;
+  name: string;
+  game_type: GameType;
+  created_at: string;
+  pending_count: number;
 }
 
 /* --------------------------------- GET --------------------------------- */
@@ -34,6 +48,28 @@ export async function GET() {
       );
     }
 
+    const { redis_key: accountsListKey, redis_ttl: accountsListTtl } =
+      RedisKeyService.accountsList(userId);
+
+    const redis = getRedis();
+
+    // ── Cache read ──────────────────────────────────────────────────────
+    try {
+      // `get` returns unknown without a type param. We store JSON, so treat
+      // the raw value as string and parse manually for determinism.
+      const cached = await redis.get<string>(accountsListKey);
+      if (cached) {
+        const parsed =
+          typeof cached === "string"
+            ? (JSON.parse(cached) as AccountListItem[])
+            : (cached as AccountListItem[]);
+        return NextResponse.json({ ok: true, accounts: parsed });
+      }
+    } catch (cacheErr) {
+      console.error("GET /api/accounts cache read failed:", cacheErr);
+    }
+
+    // ── Cache miss → hit DB ─────────────────────────────────────────────
     const pool = await getPool();
     const [rows] = await pool.execute<AccountRow[]>(
       `SELECT a.id,
@@ -53,16 +89,25 @@ export async function GET() {
       [userId],
     );
 
-    return NextResponse.json({
-      ok: true,
-      accounts: rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        game_type: r.game_type,
-        created_at: r.created_at,
-        pending_count: Number(r.pending_count),
-      })),
-    });
+    const accounts: AccountListItem[] = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      game_type: r.game_type,
+      created_at: r.created_at,
+      pending_count: Number(r.pending_count),
+    }));
+
+    // ── Cache write ─────────────────────────────────────────────────────
+    try {
+      // @upstash/redis: `set(key, value, { ex })` — 3 args max.
+      await redis.set(accountsListKey, JSON.stringify(accounts), {
+        ex: accountsListTtl,
+      });
+    } catch (cacheErr) {
+      console.error("GET /api/accounts cache write failed:", cacheErr);
+    }
+
+    return NextResponse.json({ ok: true, accounts });
   } catch (err) {
     console.error("GET /api/accounts failed:", err);
     return NextResponse.json(
@@ -101,7 +146,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // YAHAN CHANGE HUA HAI: GAME_LABEL ki keys ko valid game types maan kar check kar rahe hain
     if (!Object.keys(GAME_LABEL).includes(gameType)) {
       return NextResponse.json(
         { ok: false, error: "Invalid game type" },
@@ -111,7 +155,6 @@ export async function POST(req: Request) {
 
     const pool = await getPool();
 
-    // Scope uniqueness to THIS user only — other users can share names.
     const [existing] = await pool.execute<IdRow[]>(
       "SELECT id FROM accounts WHERE name = ? AND user_id = ? LIMIT 1",
       [name, userId],
@@ -144,6 +187,14 @@ export async function POST(req: Request) {
         `Account "${name}" (${gameType}) created`,
       ],
     );
+
+    // Bust caches affected by account creation.
+    try {
+      await invalidateRedisKey("totalAccounts");
+      await invalidateUserRedisKey("accountsList", userId);
+    } catch (cacheErr) {
+      console.error("POST /api/accounts cache invalidate failed:", cacheErr);
+    }
 
     return NextResponse.json({
       ok: true,

@@ -3,7 +3,7 @@ import type { Pool } from "mysql2/promise";
 import { createIndexStatements, dropIndexStatements } from "./Index/Indexing";
 import { getProduction } from "../../utils/ValueFetcher/getProduction.util";
 
-const manualSkipIndexing: boolean = true;
+const manualSkipIndexing: boolean = false;
 
 /**
  * @brief Checks if a specific index exists in the current database schema.

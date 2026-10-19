@@ -4,6 +4,11 @@ import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../../auth/[...nextauth]/route";
 import { getPool } from "../../../../../lib/Database/main.db";
 import { generateULID } from "../../../../../utils/generateULID.util";
+import { getRedis } from "../../../../../lib/Redis/redis.config";
+import {
+  invalidateAccountRedisKey,
+  RedisKeyService,
+} from "../../../../../services/RedisKey.service";
 
 interface AccountRow extends RowDataPacket {
   id: string;
@@ -14,6 +19,23 @@ interface AccountRow extends RowDataPacket {
 
 interface IdRow extends RowDataPacket {
   id: string;
+}
+
+interface AccountStats {
+  activeBuyers: number;
+  totalCards: number;
+  completedToday: number;
+  completedLast30Days: number;
+}
+
+interface AccountOverview {
+  account: {
+    id: string;
+    name: string;
+    game_type: "SOFI" | "KARUTA";
+    created_at: string;
+  };
+  stats: AccountStats;
 }
 
 /* --------------------------------- GET --------------------------------- */
@@ -35,7 +57,40 @@ export async function GET(
 
     const pool = await getPool();
 
-    // 1. Fetch Account Details
+    // 1. Ownership check — ALWAYS hit DB (cheap, indexed).
+    //    Cache must never bypass auth.
+    const [owned] = await pool.execute<IdRow[]>(
+      "SELECT id FROM accounts WHERE id = ? AND user_id = ? LIMIT 1",
+      [accountId, userId],
+    );
+    if (owned.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "Account not found" },
+        { status: 404 },
+      );
+    }
+
+    const { redis_key: overviewKey, redis_ttl: overviewTtl } =
+      RedisKeyService.accountOverview(accountId);
+
+    const redis = await getRedis();
+
+    // ── Cache read ──────────────────────────────────────────────────────
+    try {
+      const cached = await redis.get<string>(overviewKey);
+      if (cached) {
+        const parsed =
+          typeof cached === "string"
+            ? (JSON.parse(cached) as AccountOverview)
+            : (cached as AccountOverview);
+        return NextResponse.json({ ok: true, ...parsed });
+      }
+    } catch (cacheErr) {
+      console.error("GET /api/accounts/[id] cache read failed:", cacheErr);
+    }
+
+    // ── Cache miss → hit DB ─────────────────────────────────────────────
+    // 2. Fetch Account Details
     const [rows] = await pool.execute<AccountRow[]>(
       `SELECT id, name, game_type, created_at
          FROM accounts
@@ -43,31 +98,29 @@ export async function GET(
         LIMIT 1`,
       [accountId, userId],
     );
-
     if (rows.length === 0) {
       return NextResponse.json(
         { ok: false, error: "Account not found" },
         { status: 404 },
       );
     }
-
     const account = rows[0];
 
-    // 2. Fetch Stats
+    // 3. Fetch Stats
     //
-    // activeBuyers  → unique buyers who still have a WAITING order on a
-    //                 PENDING card. A buyer with 3 pending cards counts once.
+    // activeBuyers → SAME logic as trade sheet: unique buyers who have at
+    //                 least one WAITING order at queue_position = 1.
     const [activeBuyersRes] = await pool.execute<RowDataPacket[]>(
-      `SELECT COUNT(DISTINCT o.buyer_id) AS count
+      `SELECT COUNT(DISTINCT b.discord_id) AS count
          FROM orders o
-         JOIN cards c ON o.card_id = c.id
+         JOIN buyers b ON o.buyer_id = b.id
         WHERE o.account_id = ?
           AND o.status = 'WAITING'
-          AND c.status = 'PENDING'`,
+          AND o.queue_position = 1
+          AND o.deleted = FALSE`,
       [accountId],
     );
 
-    // totalCards    → cards still in PENDING status (i.e. not yet sold).
     const [totalCardsRes] = await pool.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS count
          FROM cards
@@ -75,7 +128,6 @@ export async function GET(
       [accountId],
     );
 
-    // completedToday → cards that became TRADED today (sold today).
     const [todayRes] = await pool.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS count
          FROM cards
@@ -85,7 +137,6 @@ export async function GET(
       [accountId],
     );
 
-    // completedLast30Days → cards traded in the last 30 days.
     const [last30Res] = await pool.execute<RowDataPacket[]>(
       `SELECT COUNT(*) AS count
          FROM cards
@@ -95,17 +146,31 @@ export async function GET(
       [accountId],
     );
 
-    // 3. Return combined response
-    return NextResponse.json({
-      ok: true,
-      account,
-      stats: {
-        activeBuyers: activeBuyersRes[0].count,
-        totalCards: totalCardsRes[0].count,
-        completedToday: todayRes[0].count,
-        completedLast30Days: last30Res[0].count,
+    const payload: AccountOverview = {
+      account: {
+        id: account.id,
+        name: account.name,
+        game_type: account.game_type,
+        created_at: account.created_at,
       },
-    });
+      stats: {
+        activeBuyers: Number(activeBuyersRes[0].count),
+        totalCards: Number(totalCardsRes[0].count),
+        completedToday: Number(todayRes[0].count),
+        completedLast30Days: Number(last30Res[0].count),
+      },
+    };
+
+    // ── Cache write ─────────────────────────────────────────────────────
+    try {
+      await redis.set(overviewKey, JSON.stringify(payload), {
+        ex: overviewTtl,
+      });
+    } catch (cacheErr) {
+      console.error("GET /api/accounts/[id] cache write failed:", cacheErr);
+    }
+
+    return NextResponse.json({ ok: true, ...payload });
   } catch (err) {
     console.error("GET /api/accounts/[id] failed:", err);
     return NextResponse.json(
@@ -190,6 +255,16 @@ export async function PUT(
       ],
     );
 
+    // Bust account overview — `name` is part of the cached payload.
+    try {
+      await invalidateAccountRedisKey(accountId);
+    } catch (cacheErr) {
+      console.error(
+        "PUT /api/accounts/[id] cache invalidate failed:",
+        cacheErr,
+      );
+    }
+
     return NextResponse.json({ ok: true, account: { id: accountId, name } });
   } catch (err) {
     console.error("PUT /api/accounts/[id] failed:", err);
@@ -251,6 +326,16 @@ export async function DELETE(
         `Account "${accountName}" deleted`,
       ],
     );
+
+    // Bust caches — account is gone, overview must not be served.
+    try {
+      await invalidateAccountRedisKey(accountId);
+    } catch (cacheErr) {
+      console.error(
+        "DELETE /api/accounts/[id] cache invalidate failed:",
+        cacheErr,
+      );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
