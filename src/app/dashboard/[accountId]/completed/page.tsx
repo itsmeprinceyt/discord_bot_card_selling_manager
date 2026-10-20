@@ -25,6 +25,14 @@ import { formatDateTime } from "../../../../utils/Formator/formatDateTime.util";
 const BOMB_TIMER_SECONDS = 4;
 const STORAGE_KEY = "disc_card_mng";
 
+/**
+ * When `showDeleted=false`, a delete only mutates local state (fast) until
+ * the number of *visible* rows remaining on the current page drops to this
+ * threshold. At that point we refetch so `total` / `pages` / `page` re-sync
+ * with the DB and the next page's rows shift up correctly.
+ */
+const REFETCH_THRESHOLD = 5;
+
 type StatusFilter = "all" | "WAITING" | "CANCELLED" | "COMPLETED";
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
@@ -161,13 +169,20 @@ export default function CompletedPage() {
   const [bombTimers, setBombTimers] = useState<Map<string, number>>(new Map());
   const timerIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
-  // Refs to avoid stale closures in the bomb-timer interval.
+  // Refs to avoid stale closures in the bomb-timer interval + rapid deletes.
   const showDeletedRef = useRef(showDeleted);
   const handleToggleDeletedRef = useRef<(id: string) => void>(() => {});
+  const ordersRef = useRef<Order[]>([]);
 
   useEffect(() => {
     showDeletedRef.current = showDeleted;
   }, [showDeleted]);
+
+  // Keep a live ref of `orders` so handleToggleDeleted can read the latest
+  // committed state even when called multiple times before React re-renders.
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
 
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
@@ -180,9 +195,12 @@ export default function CompletedPage() {
 
   // Hydrate filters from localStorage on mount.
   useEffect(() => {
-    const stored = readStoredFilters();
-    setStatusFilter(stored.status);
-    setShowDeleted(stored.showDeleted);
+    const load = () => {
+      const stored = readStoredFilters();
+      setStatusFilter(stored.status);
+      setShowDeleted(stored.showDeleted);
+    };
+    load();
   }, []);
 
   // Persist both filters to localStorage whenever they change.
@@ -210,23 +228,46 @@ export default function CompletedPage() {
     });
   }, []);
 
-  const loadOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data } = await axios.get(
-        `/api/dashboard/accounts/${accountId}/completed?page=${page}&search=${search}&status=${statusFilter}&showDeleted=${showDeleted}`,
-        { withCredentials: true },
-      );
-      setOrders(data.orders || []);
-      setTotal(data.total || 0);
-      setPages(data.pages || 1);
-    } catch (err) {
-      toast.error(getAxiosErrorMessage(err, "Failed to fetch orders"));
-    } finally {
-      setLoading(false);
-    }
-  }, [accountId, page, search, statusFilter, showDeleted]);
+  /**
+   * Load orders. Optionally accepts an override page so callers (like
+   * handleToggleDeleted) can force a re-fetch on a specific page.
+   *
+   * Returns the parsed response so callers can inspect `page`/`pages`.
+   */
+  const loadOrders = useCallback(
+    async (overridePage?: number) => {
+      const targetPage = overridePage ?? page;
+      setLoading(true);
+      try {
+        const { data } = await axios.get(
+          `/api/dashboard/accounts/${accountId}/completed?page=${targetPage}&search=${search}&status=${statusFilter}&showDeleted=${showDeleted}`,
+          { withCredentials: true },
+        );
+        setOrders(data.orders || []);
+        setTotal(data.total || 0);
+        setPages(data.pages || 1);
+        // Backend clamps to the last valid page; sync our state to it.
+        if (data.page && data.page !== targetPage) {
+          setPage(data.page);
+        }
+        return data as {
+          ok: boolean;
+          orders: Order[];
+          total: number;
+          pages: number;
+          page: number;
+        };
+      } catch (err) {
+        toast.error(getAxiosErrorMessage(err, "Failed to fetch orders"));
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [accountId, page, search, statusFilter, showDeleted],
+  );
 
+  // Initial + reactive load whenever filters/page change.
   useEffect(() => {
     const load = () => {
       loadOrders();
@@ -283,8 +324,14 @@ export default function CompletedPage() {
 
   /**
    * Toggles `deleted` on a COMPLETED order.
-   * Only updates local state if the backend confirms the change
-   * (backend rejects non-COMPLETED orders).
+   *
+   * Behavior:
+   *  - showDeleted = true  → mutate local state (row stays visible, tint flips).
+   *  - showDeleted = false → remove row locally + decrement total optimistically.
+   *      Only when the number of *remaining visible* rows on this page drops
+   *      to REFETCH_THRESHOLD or below do we hit the API again — that way
+   *      pagination stays correct (total/pages/page re-sync) without
+   *      firing a GET on every single delete.
    */
   const handleToggleDeleted = useCallback(
     async (orderId: string) => {
@@ -298,18 +345,33 @@ export default function CompletedPage() {
 
         clearBombTimer(orderId);
 
-        setOrders((prevOrders) => {
-          const updated = prevOrders.map((order) =>
-            order.id === orderId
-              ? { ...order, deleted: !order.deleted }
-              : order,
+        if (showDeletedRef.current) {
+          // Deleted rows still visible — just flip the tint locally.
+          setOrders((prevOrders) =>
+            prevOrders.map((order) =>
+              order.id === orderId
+                ? { ...order, deleted: !order.deleted }
+                : order,
+            ),
           );
-          // If "Hide Deleted" mode is active, drop the newly-deleted row.
-          if (!showDeletedRef.current) {
-            return updated.filter((order) => !order.deleted);
-          }
-          return updated;
-        });
+          return;
+        }
+
+        // Hidden-deleted mode: row must disappear from the list.
+        // Read from the ref so rapid successive calls see the latest state.
+        const remainingVisible = ordersRef.current
+          .filter((o) => o.id !== orderId)
+          .filter((o) => !o.deleted).length;
+
+        setOrders((prev) => prev.filter((o) => o.id !== orderId));
+        setTotal((prev) => Math.max(0, prev - 1));
+
+        if (remainingVisible <= REFETCH_THRESHOLD) {
+          // Threshold hit — re-sync total/pages/page from the DB.
+          // Backend clamps `page` to the last valid page, which also
+          // covers the "this page emptied out" case.
+          await loadOrders();
+        }
       } catch (err) {
         toast.error(
           getAxiosErrorMessage(err, "Failed to toggle deleted status"),
@@ -322,7 +384,7 @@ export default function CompletedPage() {
         });
       }
     },
-    [accountId, clearBombTimer],
+    [accountId, clearBombTimer, loadOrders],
   );
 
   // Keep the ref in sync so the bomb-timer interval always calls the
