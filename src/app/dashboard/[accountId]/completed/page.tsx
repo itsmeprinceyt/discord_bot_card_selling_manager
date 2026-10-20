@@ -17,10 +17,10 @@ import {
 import React from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
-import CustomLoader from "../../../(components)/CustomLoader";
 import ConfirmDialog from "../../../(components)/ConfirmDialog";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
 import { formatDateTime } from "../../../../utils/Formator/formatDateTime.util";
+import SkeletonBlock from "../../../(components)/SkeletonBlock";
 
 const BOMB_TIMER_SECONDS = 4;
 const STORAGE_KEY = "disc_card_mng";
@@ -149,6 +149,129 @@ function readStoredFilters(): StoredFilters {
   return DEFAULT_FILTERS;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
+function OrdersSkeleton() {
+  return (
+    <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
+      <div className="mx-auto w-full max-w-6xl">
+        {/* Header: title + back button + right-side controls */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+          <div className="flex items-center gap-4">
+            <div className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+            <div className="space-y-2">
+              <SkeletonBlock className="h-6 w-20" />
+              <SkeletonBlock className="h-3 w-44" />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <SkeletonBlock className="h-3 w-12" />
+            <SkeletonBlock className="h-9.5 w-28 rounded-lg" />
+            <SkeletonBlock className="h-9.5 w-32 rounded-lg" />
+          </div>
+        </div>
+
+        {/* Notice banner */}
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+          <SkeletonBlock className="h-4.5 w-4.5 shrink-0 rounded" />
+          <div className="flex-1 space-y-2">
+            <SkeletonBlock className="h-3 w-full" />
+            <SkeletonBlock className="h-3 w-2/3" />
+          </div>
+        </div>
+
+        {/* Search form */}
+        <div className="flex gap-2 sm:gap-3 mb-6">
+          <SkeletonBlock className="h-10.5 flex-1 rounded-lg" />
+          <SkeletonBlock className="h-10.5 w-24 rounded-lg" />
+        </div>
+
+        {/* Count line */}
+        <SkeletonBlock className="mb-4 h-3 w-24" />
+
+        {/* Desktop table skeleton */}
+        <div className="hidden sm:block overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
+          {/* Table head */}
+          <div className="border-b border-neutral-800 px-4 py-3">
+            <div className="flex items-center gap-6">
+              <SkeletonBlock className="h-3 w-10" />
+              <SkeletonBlock className="h-3 w-12" />
+              <SkeletonBlock className="h-3 w-16" />
+              <SkeletonBlock className="h-3 w-16" />
+              <SkeletonBlock className="h-3 w-12" />
+              <SkeletonBlock className="h-3 w-12" />
+              <SkeletonBlock className="ml-auto h-3 w-12" />
+            </div>
+          </div>
+
+          {/* Group label row */}
+          <div className="bg-neutral-950/50 px-4 py-2">
+            <SkeletonBlock className="h-3 w-16" />
+          </div>
+
+          {/* 6 order rows */}
+          <div className="divide-y divide-neutral-800">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-6 px-4 py-3">
+                <SkeletonBlock className="h-7 w-7 shrink-0 rounded" />
+                <SkeletonBlock className="h-4.5 w-20 shrink-0 rounded" />
+                <SkeletonBlock className="h-3.5 w-32 shrink-0" />
+                <div className="flex items-center gap-2">
+                  <SkeletonBlock className="h-3.5 w-20" />
+                  <SkeletonBlock className="h-3.5 w-3.5 rounded" />
+                  <SkeletonBlock className="h-3.5 w-3.5 rounded" />
+                </div>
+                <SkeletonBlock className="h-3.5 w-16 shrink-0" />
+                <SkeletonBlock className="h-3 w-20 shrink-0" />
+                <SkeletonBlock className="ml-auto h-7 w-16 shrink-0 rounded-lg" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Mobile card skeleton */}
+        <div className="sm:hidden space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i}>
+              <div className="flex items-center justify-between px-1 py-2 border-b border-neutral-800 mb-2">
+                <SkeletonBlock className="h-3 w-16" />
+                <SkeletonBlock className="h-3 w-20" />
+              </div>
+              <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2 min-w-0 flex-1 mr-3">
+                    <SkeletonBlock className="h-7 w-7 shrink-0 rounded" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <SkeletonBlock className="h-3.5 w-20" />
+                        <SkeletonBlock className="h-3.5 w-3.5 rounded" />
+                        <SkeletonBlock className="h-3.5 w-3.5 rounded" />
+                        <SkeletonBlock className="h-4.5 w-16 rounded" />
+                      </div>
+                      <SkeletonBlock className="h-3 w-16" />
+                    </div>
+                  </div>
+                  <SkeletonBlock className="h-7 w-14 shrink-0 rounded-lg" />
+                </div>
+                <div className="ml-9 space-y-1.5">
+                  <SkeletonBlock className="h-3 w-32" />
+                  <SkeletonBlock className="h-3 w-40" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function CompletedPage() {
   const params = useParams();
   const router = useRouter();
@@ -168,6 +291,9 @@ export default function CompletedPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [bombTimers, setBombTimers] = useState<Map<string, number>>(new Map());
   const timerIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Loading state for the confirm dialog's async action (undo).
+  const [undoLoading, setUndoLoading] = useState(false);
 
   // Refs to avoid stale closures in the bomb-timer interval + rapid deletes.
   const showDeletedRef = useRef(showDeleted);
@@ -307,6 +433,7 @@ export default function CompletedPage() {
       confirmText: "Undo Order",
       variant: "default",
       onConfirm: async () => {
+        setUndoLoading(true);
         try {
           await axios.patch(
             `/api/dashboard/accounts/${accountId}/orders/${orderId}/undo`,
@@ -314,9 +441,14 @@ export default function CompletedPage() {
             { withCredentials: true },
           );
           setMsg("Order restored to queue.");
-          loadOrders();
+          await loadOrders();
         } catch (err) {
           toast.error(getAxiosErrorMessage(err, "Failed to undo order"));
+        } finally {
+          setUndoLoading(false);
+          // Close the modal on both success and failure so the user isn't
+          // stuck looking at a frozen dialog if the request errors.
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
@@ -515,7 +647,7 @@ export default function CompletedPage() {
     );
   };
 
-  if (loading && orders.length === 0) return <CustomLoader />;
+  if (loading && orders.length === 0) return <OrdersSkeleton />;
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
@@ -633,11 +765,7 @@ export default function CompletedPage() {
           )}
         </div>
 
-        {loading && orders.length === 0 ? (
-          <p className="text-sm text-neutral-500 py-8 text-center">
-            Loading...
-          </p>
-        ) : groupedOrders.length === 0 ? (
+        {groupedOrders.length === 0 ? (
           <p className="text-sm text-neutral-500 py-8 text-center">
             No orders found.
           </p>
@@ -756,7 +884,8 @@ export default function CompletedPage() {
                               {order.status === "COMPLETED" ? (
                                 <button
                                   onClick={() => handleUndo(order.id)}
-                                  className="rounded-lg border border-neutral-800 px-2 sm:px-3 py-1 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 whitespace-nowrap cursor-pointer"
+                                  disabled={undoLoading}
+                                  className="rounded-lg border border-neutral-800 px-2 sm:px-3 py-1 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   Undo
                                 </button>
@@ -857,7 +986,8 @@ export default function CompletedPage() {
                             {order.status === "COMPLETED" && (
                               <button
                                 onClick={() => handleUndo(order.id)}
-                                className="rounded-lg border border-neutral-800 px-3 py-1 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 shrink-0 cursor-pointer"
+                                disabled={undoLoading}
+                                className="rounded-lg border border-neutral-800 px-3 py-1 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 Undo
                               </button>
@@ -920,6 +1050,7 @@ export default function CompletedPage() {
         message={confirmDialog.message}
         confirmText={confirmDialog.confirmText}
         variant={confirmDialog.variant}
+        loading={undoLoading}
       />
     </main>
   );

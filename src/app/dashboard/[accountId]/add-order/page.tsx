@@ -4,13 +4,68 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import axios from "axios";
-import CustomLoader from "../../../(components)/CustomLoader";
 import toast from "react-hot-toast";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
 import {
   GameType,
   GAME_LABEL,
 } from "../../../../utils/Dashboard/accountLabels";
+import SkeletonBlock from "../../../(components)/SkeletonBlock";
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
+function FieldSkeleton() {
+  return (
+    <div>
+      {/* Label */}
+      <SkeletonBlock className="mb-1.5 h-3 w-24" />
+      {/* Input */}
+      <SkeletonBlock className="h-10.5 w-full rounded-lg" />
+    </div>
+  );
+}
+
+function AddOrderSkeleton() {
+  return (
+    <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
+      <div className="mx-auto w-full max-w-3xl">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <div className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+          <div className="space-y-2">
+            <SkeletonBlock className="h-6 w-32" />
+            <SkeletonBlock className="h-3 w-64 max-w-full" />
+          </div>
+        </div>
+
+        {/* Form card */}
+        <div className="space-y-4 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          <FieldSkeleton />
+          <FieldSkeleton />
+
+          {/* Price tier + currency row */}
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <FieldSkeleton />
+            </div>
+            <div className="flex-1">
+              <FieldSkeleton />
+            </div>
+          </div>
+
+          {/* Submit button */}
+          <SkeletonBlock className="mt-2 h-10.5 w-full rounded-lg" />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function AddOrderPage() {
   const params = useParams();
@@ -140,7 +195,7 @@ export default function AddOrderPage() {
   };
 
   if (!isReady) {
-    return <CustomLoader />;
+    return <AddOrderSkeleton />;
   }
 
   return (

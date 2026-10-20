@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
-import CustomLoader from "../../../(components)/CustomLoader";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
 import {
   GameType,
@@ -24,6 +23,105 @@ import {
   cleanBulkLine,
 } from "../../../../utils/Dashboard/bulkImportParser";
 import { BulkImportResult } from "../../../../types/BulkImport.types";
+import SkeletonBlock from "../../../(components)/SkeletonBlock";
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
+function FieldSkeleton() {
+  return (
+    <div>
+      <SkeletonBlock className="mb-1.5 h-3 w-24" />
+      <SkeletonBlock className="h-10.5 w-full rounded-lg" />
+    </div>
+  );
+}
+
+function BulkImportSkeleton() {
+  return (
+    <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
+      <div className="mx-auto w-full max-w-3xl">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <div className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+          <div className="space-y-2">
+            <SkeletonBlock className="h-6 w-32" />
+            <SkeletonBlock className="h-3 w-48" />
+          </div>
+        </div>
+
+        {/* Card 1 — Bulk import */}
+        <div className="mb-12 rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          {/* Instruction line */}
+          <SkeletonBlock className="mb-4 h-3.5 w-64 max-w-full" />
+
+          {/* Example block */}
+          <div className="mb-4 space-y-2 rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+            <SkeletonBlock className="h-3 w-48" />
+            <SkeletonBlock className="h-3 w-48" />
+            <SkeletonBlock className="h-3 w-48" />
+          </div>
+
+          {/* Currency select */}
+          <div className="mb-4">
+            <FieldSkeleton />
+          </div>
+
+          {/* Textarea */}
+          <SkeletonBlock className="mb-3 h-60 w-full rounded-lg" />
+
+          {/* Undo + Clean buttons */}
+          <div className="flex gap-3 mb-2">
+            <SkeletonBlock className="h-9 w-24 rounded-lg" />
+            <SkeletonBlock className="h-9 w-24 rounded-lg" />
+          </div>
+
+          {/* Tip line */}
+          <SkeletonBlock className="mb-4 h-3 w-48" />
+
+          {/* Submit button */}
+          <SkeletonBlock className="h-10.5 w-full rounded-lg" />
+        </div>
+
+        {/* Card 2 — Extractor */}
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+          {/* Title + subtitle */}
+          <SkeletonBlock className="mb-1.5 h-5 w-44" />
+          <SkeletonBlock className="mb-6 h-3 w-72 max-w-full" />
+
+          <div className="space-y-4">
+            {/* Buyer ID */}
+            <FieldSkeleton />
+
+            {/* Price tier + currency row */}
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <FieldSkeleton />
+              </div>
+              <div className="flex-1">
+                <FieldSkeleton />
+              </div>
+            </div>
+
+            {/* Raw messages textarea */}
+            <div>
+              <SkeletonBlock className="mb-1.5 h-3 w-24" />
+              <SkeletonBlock className="h-35 w-full rounded-lg" />
+            </div>
+
+            {/* Extract button */}
+            <SkeletonBlock className="h-10.5 w-full rounded-lg" />
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function BulkImportPage() {
   const params = useParams();
@@ -189,7 +287,7 @@ export default function BulkImportPage() {
     setOtherCurrencies({});
   };
 
-  if (!currencyType) return <CustomLoader />;
+  if (!currencyType) return <BulkImportSkeleton />;
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">

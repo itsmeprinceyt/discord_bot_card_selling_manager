@@ -5,6 +5,7 @@ export interface AccountItem {
   name: string;
   game_type: GameType;
   pending_count: number;
+  isWarnIncoming: boolean;
 }
 
 export type SortOption = "az" | "pending";

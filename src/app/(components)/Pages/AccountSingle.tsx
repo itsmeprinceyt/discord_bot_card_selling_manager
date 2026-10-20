@@ -10,21 +10,94 @@ import {
   UploadCloud,
   Search,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
-import CustomLoader from "../../(components)/CustomLoader";
 import {
   AccountSingleType,
   StatsSingle,
 } from "../../../types/AccountSingle.types";
+import SkeletonBlock from "../SkeletonBlock";
+
+/* ------------------------------------------------------------------ */
+/* Skeleton                                                            */
+/* ------------------------------------------------------------------ */
+
+function AccountSingleSkeleton() {
+  return (
+    <main className="min-h-screen bg-neutral-950 text-neutral-100 px-4 py-16">
+      <div className="mx-auto w-full max-w-3xl">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <div className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+          <div className="flex-1 min-w-0 space-y-2">
+            <SkeletonBlock className="h-7 w-48 max-w-full" />
+            <SkeletonBlock className="h-3 w-20" />
+          </div>
+          <div className="h-7 w-24 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+        </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-2xl border border-neutral-800 bg-neutral-900 p-5 min-h-28 flex flex-col justify-between"
+            >
+              <div className="space-y-1.5">
+                <SkeletonBlock className="h-3 w-20" />
+                <SkeletonBlock className="h-2.5 w-12" />
+              </div>
+              <SkeletonBlock className="h-7 w-16" />
+            </div>
+          ))}
+        </div>
+
+        {/* Info banner */}
+        <div className="rounded-2xl border border-neutral-800 bg-neutral-900/50 p-6 flex items-start gap-4">
+          <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-neutral-800/70" />
+          <div className="flex-1 space-y-2 pt-1">
+            <SkeletonBlock className="h-4 w-56 max-w-full" />
+            <SkeletonBlock className="h-3 w-full" />
+            <SkeletonBlock className="h-3 w-3/4" />
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="my-8">
+          <SkeletonBlock className="mb-4 h-3 w-28" />
+          <div className="grid grid-cols-2 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="flex flex-col items-start gap-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4"
+              >
+                <div className="h-10 w-10 animate-pulse rounded-lg bg-neutral-800/70" />
+                <div className="w-full space-y-1.5">
+                  <SkeletonBlock className="h-3.5 w-24" />
+                  <SkeletonBlock className="h-3 w-32 max-w-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
 
 export default function AccountSingle({ accountId }: { accountId: string }) {
   const router = useRouter();
 
   const [account, setAccount] = useState<AccountSingleType | null>(null);
   const [stats, setStats] = useState<StatsSingle | null>(null);
+  const [isWarnIncoming, setIsWarnIncoming] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -45,6 +118,7 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
 
         setAccount(data.account);
         setStats(data.stats);
+        setIsWarnIncoming(Boolean(data.isWarnIncoming));
       } catch (err) {
         setError(getAxiosErrorMessage(err, "Failed to load dashboard"));
       } finally {
@@ -74,6 +148,7 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
       });
       setAccount(data.account);
       setStats(data.stats);
+      setIsWarnIncoming(Boolean(data.isWarnIncoming));
     } catch (err) {
       setError(getAxiosErrorMessage(err, "Failed to refresh dashboard"));
     } finally {
@@ -81,7 +156,7 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
     }
   }, [accountId, refreshing]);
 
-  if (loading) return <CustomLoader />;
+  if (loading) return <AccountSingleSkeleton />;
   if (error && !account)
     return (
       <main className="min-h-screen bg-neutral-950 p-8 text-red-400">
@@ -185,6 +260,24 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
         </div>
 
         {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+
+        {/* Warning banner — only when completed orders are still not deleted */}
+        {isWarnIncoming && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <AlertTriangle size={18} className="shrink-0 mt-0.5 text-red-400" />
+            <p className="leading-relaxed">
+              One or more completed cards have not been deleted from Discord.
+              Please check the{" "}
+              <Link
+                href={`/dashboard/${accountId}/completed`}
+                className="font-semibold text-red-200 underline underline-offset-2 hover:text-white transition"
+              >
+                completed page
+              </Link>{" "}
+              and delete them from Discord to avoid a possible server warn.
+            </p>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

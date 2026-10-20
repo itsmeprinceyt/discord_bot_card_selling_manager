@@ -13,9 +13,51 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import { generateULID } from "../../../utils/generateULID.util";
-import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper"; // Apna path check kar lena
+import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
+import SkeletonBlock from "../SkeletonBlock";
 
 const MAX_LEN = 255;
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
+function InviteCodeSkeleton() {
+  return (
+    <div className="w-full max-w-xl">
+      {/* Header */}
+      <div className="mb-6 flex items-start gap-3">
+        <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-neutral-800/70" />
+        <div className="flex-1 space-y-2 pt-0.5">
+          <SkeletonBlock className="h-5 w-28" />
+          <SkeletonBlock className="h-3 w-64 max-w-full" />
+        </div>
+      </div>
+
+      {/* Card */}
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-5 shadow-lg">
+        {/* Label */}
+        <SkeletonBlock className="mb-1.5 h-3 w-24" />
+
+        {/* Code field + copy button */}
+        <div className="mb-4 flex items-stretch gap-2">
+          <div className="h-10.5 flex-1 animate-pulse rounded-lg border border-neutral-800 bg-neutral-800/50" />
+          <div className="h-10.5 w-10 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+        </div>
+
+        {/* Two action buttons */}
+        <div className="grid grid-cols-2 gap-2">
+          <SkeletonBlock className="h-10.5 rounded-lg" />
+          <SkeletonBlock className="h-10.5 rounded-lg" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Panel                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function InviteCodePanel() {
   const [code, setCode] = useState("");
@@ -143,6 +185,10 @@ export default function InviteCodePanel() {
     }
   }
 
+  if (loading) {
+    return <InviteCodeSkeleton />;
+  }
+
   return (
     <div className="w-full max-w-xl">
       {/* Header */}
@@ -162,12 +208,7 @@ export default function InviteCodePanel() {
 
       {/* Card */}
       <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-5 shadow-lg">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-8">
-            <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
-            <p className="text-xs text-neutral-500">Loading…</p>
-          </div>
-        ) : mode === "view" ? (
+        {mode === "view" ? (
           <ViewMode
             code={code}
             copied={copied}

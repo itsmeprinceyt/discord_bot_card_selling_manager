@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import {
+  AlertTriangle,
   ArrowUpDown,
   ChevronRight,
   LayoutDashboard,
@@ -19,12 +20,77 @@ import ConfirmDialog from "../ConfirmDialog";
 import { GAME_LABEL, GameType } from "../../../utils/Dashboard/accountLabels";
 import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
 import { AccountItem, SortOption } from "../../../types/AccountsClient.types";
-import CustomLoader from "../CustomLoader";
+import SkeletonBlock from "../SkeletonBlock";
 
 const SORT_LABEL: Record<SortOption, string> = {
   az: "Name (A–Z)",
   pending: "Pending trades",
 };
+
+/* ------------------------------------------------------------------ */
+/* Skeleton                                                            */
+/* ------------------------------------------------------------------ */
+
+function AccountsSkeleton() {
+  return (
+    <main className="min-h-screen bg-neutral-950 text-neutral-100 px-4 py-16">
+      <div className="mx-auto w-full max-w-3xl">
+        {/* Header */}
+        <div className="flex items-start gap-4">
+          <div className="h-12 w-12 shrink-0 animate-pulse rounded-full bg-neutral-800/70" />
+          <div className="flex-1 space-y-2 pt-1">
+            <SkeletonBlock className="h-7 w-40 max-w-full" />
+            <SkeletonBlock className="h-3 w-56 max-w-full" />
+          </div>
+        </div>
+
+        {/* Sort + refresh bar */}
+        <div className="mt-8 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-32 animate-pulse rounded-lg bg-neutral-800/70" />
+            <div className="h-8 w-24 animate-pulse rounded-lg bg-neutral-800/70" />
+          </div>
+          <SkeletonBlock className="h-3 w-20" />
+        </div>
+
+        {/* Account rows */}
+        <div className="mt-4 space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-stretch overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900"
+            >
+              <div className="flex flex-1 items-center justify-between gap-4 p-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+                  <div className="min-w-0 space-y-1.5">
+                    <SkeletonBlock className="h-3.5 w-32 max-w-full" />
+                    <SkeletonBlock className="h-3 w-20" />
+                  </div>
+                </div>
+                <div className="h-4 w-4 shrink-0 animate-pulse rounded bg-neutral-800/70" />
+              </div>
+              <div className="flex items-center gap-2 border-l border-neutral-800 px-3">
+                <div className="h-4 w-4 animate-pulse rounded bg-neutral-800/70" />
+                <div className="h-4 w-4 animate-pulse rounded bg-neutral-800/70" />
+              </div>
+            </div>
+          ))}
+
+          {/* Create button */}
+          <div className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-neutral-800 px-4 py-4">
+            <div className="h-4 w-4 animate-pulse rounded bg-neutral-800/70" />
+            <SkeletonBlock className="h-3.5 w-40" />
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
 
 export default function AccountsClient({ firstName }: { firstName: string }) {
   const router = useRouter();
@@ -195,7 +261,7 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
   }, [accounts, sortBy]);
 
   if (loading) {
-    return <CustomLoader label="Loading accounts..." />;
+    return <AccountsSkeleton />;
   }
 
   /* --------------------------------- UI --------------------------------- */
@@ -300,6 +366,14 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
                       {account.pending_count > 0 && (
                         <span className="shrink-0 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
                           {account.pending_count} pending
+                        </span>
+                      )}
+                      {account.isWarnIncoming && (
+                        <span
+                          title="One or more completed cards have not been deleted from Discord"
+                          className="shrink-0 rounded-full border border-red-500/30 bg-red-500/10 p-1 text-red-400"
+                        >
+                          <AlertTriangle size={12} />
                         </span>
                       )}
                     </div>

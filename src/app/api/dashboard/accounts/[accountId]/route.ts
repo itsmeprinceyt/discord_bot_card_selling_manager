@@ -36,6 +36,7 @@ interface AccountOverview {
     created_at: string;
   };
   stats: AccountStats;
+  isWarnIncoming: boolean;
 }
 
 /* --------------------------------- GET --------------------------------- */
@@ -159,6 +160,20 @@ export async function GET(
       [accountId],
     );
 
+    // 4. Warn flag — any COMPLETED order not yet marked deleted?
+    //    Used by the dashboard to nudge the user to review/clean up
+    //    completed-but-not-deleted orders.
+    const [warnRes] = await pool.execute<RowDataPacket[]>(
+      `SELECT 1 AS hit
+         FROM orders
+        WHERE account_id = ?
+          AND status = 'COMPLETED'
+          AND deleted = FALSE
+        LIMIT 1`,
+      [accountId],
+    );
+    const isWarnIncoming = warnRes.length > 0;
+
     const payload: AccountOverview = {
       account: {
         id: account.id,
@@ -172,6 +187,7 @@ export async function GET(
         completedToday: Number(todayRes[0].count),
         completedLast30Days: Number(last30Res[0].count),
       },
+      isWarnIncoming,
     };
 
     // ── Cache write (always, including after a forced refresh) ──────────
