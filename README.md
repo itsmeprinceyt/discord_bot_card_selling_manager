@@ -2,7 +2,7 @@
 
 A full-stack dashboard for managing card selling queues, buyers, and trades within Discord communities. Built to streamline order tracking and provide accurate queue management.
 
-**Live Demo:** [discordbotcardsellingmanager.vercel.app](https://discordbotcardsellingmanager.vercel.app/dashboard)
+**Live Demo:** [discordbotcardsellingmanager.vercel.app](https://discordbotcardsellingmanager.vercel.app)
 
 ---
 
@@ -151,4 +151,4 @@ This project is for personal use. Contact the repository owner for licensing inq
 
 ## Live Demo
 
-https://discordbotcardsellingmanager.vercel.app/dashboard
+https://discordbotcardsellingmanager.vercel.app
