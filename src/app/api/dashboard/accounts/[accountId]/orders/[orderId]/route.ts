@@ -5,6 +5,7 @@ import type { RowDataPacket } from "mysql2";
 import { authOptions } from "../../../../../auth/[...nextauth]/route";
 import { getPool } from "../../../../../../../lib/Database/main.db";
 import { generateULID } from "../../../../../../../utils/generateULID.util";
+import { invalidateOrderMutationCaches } from "../../../../../../../services/RedisKey.service";
 
 /**
  * Per-order action endpoint.
@@ -29,6 +30,11 @@ import { generateULID } from "../../../../../../../utils/generateULID.util";
  * `delete_from_discord` semantics (orders.deleted column):
  *   - true  → deleted = TRUE  (bot will remove the completed order row from Discord)
  *   - false → deleted = FALSE (order kept, still visible as a completed order)
+ *
+ * Cache invalidation:
+ *   After any successful mutation we bust the buyer_single, card_single, and
+ *   account_overview Redis entries so subsequent GETs (including the frontend
+ *   `refresh()` call) don't serve stale data.
  *
  * NOTE: orders has UNIQUE(buyer_id, card_id). A completed + flagged order
  * still occupies that (buyer, card) slot — same as a CANCELLED order does.
@@ -76,12 +82,14 @@ export async function PATCH(
       );
     }
 
-    // ── Fetch order + card details ──────────────────────────────────────
+    // ── Fetch order + card + buyer details ──────────────────────────────
     const [orders] = await pool.execute<RowDataPacket[]>(
       `SELECT o.id, o.card_id, o.status, o.queue_position,
-              c.card_code, c.price_tier, c.currency_type
+              c.card_code, c.price_tier, c.currency_type,
+              b.discord_id
        FROM orders o
-       JOIN cards c ON o.card_id = c.id
+       JOIN cards  c ON o.card_id  = c.id
+       JOIN buyers b ON o.buyer_id = b.id
        WHERE o.id = ? AND o.account_id = ?
        LIMIT 1`,
       [orderId, accountId],
@@ -183,6 +191,14 @@ export async function PATCH(
         conn.release();
       }
 
+      // Bust buyer_single + card_single + account_overview for this mutation
+      // so the frontend's follow-up GET (refresh) doesn't serve stale data.
+      await invalidateOrderMutationCaches(
+        accountId,
+        order.discord_id,
+        order.card_code,
+      );
+
       return NextResponse.json({ ok: true });
     }
 
@@ -257,6 +273,13 @@ export async function PATCH(
       } finally {
         conn.release();
       }
+
+      // Bust buyer_single + card_single + account_overview for this mutation.
+      await invalidateOrderMutationCaches(
+        accountId,
+        order.discord_id,
+        order.card_code,
+      );
 
       return NextResponse.json({
         ok: true,

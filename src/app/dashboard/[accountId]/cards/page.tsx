@@ -7,6 +7,7 @@ import axios from "axios";
 import toast from "react-hot-toast";
 import ConfirmDialog from "../../../(components)/ConfirmDialog";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
+import SkeletonBlock from "../../../(components)/SkeletonBlock";
 
 interface Order {
   id: string;
@@ -30,6 +31,65 @@ interface CancelActionResponse {
   card_deleted?: boolean;
   card_code?: string;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
+function CardResultSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
+      {/* Header */}
+      <div className="border-b border-neutral-800 p-6 bg-neutral-950/50">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-2">
+            <SkeletonBlock className="h-8 w-32" />
+            <div className="flex items-center gap-2">
+              <SkeletonBlock className="h-3.5 w-16" />
+              <SkeletonBlock className="h-2.5 w-1" />
+              <SkeletonBlock className="h-3.5 w-16" />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <SkeletonBlock className="h-8 w-28 rounded-lg" />
+            <SkeletonBlock className="h-8 w-40 rounded-lg" />
+            <SkeletonBlock className="h-8 w-28 rounded-lg" />
+          </div>
+        </div>
+      </div>
+
+      {/* Queue section */}
+      <div className="p-6">
+        <SkeletonBlock className="mb-4 h-3 w-32" />
+
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between py-3 border-b border-neutral-800 last:border-0"
+            >
+              {/* Left: position + discord id + badge */}
+              <div className="flex items-center gap-2">
+                <SkeletonBlock className="h-3 w-5" />
+                <SkeletonBlock className="h-3.5 w-28" />
+                <SkeletonBlock className="h-4.5 w-20 rounded-full" />
+              </div>
+              {/* Right: Done + Remove buttons */}
+              <div className="flex gap-2">
+                <SkeletonBlock className="h-7 w-16 rounded-lg" />
+                <SkeletonBlock className="h-7 w-20 rounded-lg" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function CardsPage() {
   const params = useParams();
@@ -329,7 +389,10 @@ export default function CardsPage() {
           </div>
         )}
 
-        {searched && !card && (
+        {/* Skeleton while a search is in flight (no card yet to keep visible) */}
+        {loading && !card && <CardResultSkeleton />}
+
+        {!loading && searched && !card && (
           <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-center text-sm text-neutral-500">
             No card found with code &quot;{search}&quot;
           </div>

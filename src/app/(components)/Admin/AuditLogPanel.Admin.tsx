@@ -13,8 +13,76 @@ import axios from "axios";
 import { formatDateTime } from "../../../utils/Formator/formatDateTime.util";
 import { AuditLogClient } from "../../../types/AuditLog/auditLog.types";
 import getAxiosErrorMessage from "../../../utils/Auth/Auth.AxiosHelper";
+import SkeletonBlock from "../SkeletonBlock";
 
 const PAGE_SIZE = 20;
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
+function LogRowSkeleton() {
+  return (
+    <li className="px-4 py-3.5">
+      {/* Top line: badges + time */}
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+        <SkeletonBlock className="h-4.5 w-16 rounded-md" />
+        <SkeletonBlock className="h-4.5 w-14 rounded-md" />
+        <SkeletonBlock className="ml-auto h-3 w-28" />
+      </div>
+
+      {/* Description */}
+      <div className="space-y-1.5">
+        <SkeletonBlock className="h-3.5 w-full" />
+        <SkeletonBlock className="h-3.5 w-2/3" />
+      </div>
+
+      {/* Meta */}
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+        <SkeletonBlock className="h-3 w-24" />
+        <SkeletonBlock className="h-3 w-28" />
+      </div>
+    </li>
+  );
+}
+
+function AuditLogSkeleton() {
+  return (
+    <div className="w-full max-w-3xl">
+      {/* Header */}
+      <div className="mb-6 flex items-start gap-3">
+        <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-neutral-800/70" />
+        <div className="flex-1 space-y-2 pt-0.5">
+          <SkeletonBlock className="h-5 w-28" />
+          <SkeletonBlock className="h-3 w-56 max-w-full" />
+        </div>
+        <div className="h-10 w-10 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+      </div>
+
+      {/* Card */}
+      <div className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900 shadow-lg">
+        <ul className="divide-y divide-neutral-800">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <LogRowSkeleton key={i} />
+          ))}
+        </ul>
+
+        {/* Pagination placeholder */}
+        <div className="flex items-center justify-between border-t border-neutral-800 px-4 py-3">
+          <SkeletonBlock className="h-3 w-40" />
+          <div className="flex items-center gap-2">
+            <SkeletonBlock className="h-7 w-16 rounded-lg" />
+            <SkeletonBlock className="h-7 w-16 rounded-lg" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Panel                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function AuditLogPanel() {
   const [logs, setLogs] = useState<AuditLogClient[]>([]);
@@ -57,6 +125,12 @@ export default function AuditLogPanel() {
     ahem();
   }, [load]);
 
+  // First load (no data yet) → skeleton. Subsequent loads keep the real
+  // UI visible and only spin the header refresh icon.
+  if (loading && logs.length === 0) {
+    return <AuditLogSkeleton />;
+  }
+
   return (
     <div className="w-full max-w-3xl">
       {/* Header */}
@@ -96,12 +170,7 @@ export default function AuditLogPanel() {
         )}
 
         {/* Body */}
-        {loading && logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-neutral-500" />
-            <p className="text-xs text-neutral-500">Loading…</p>
-          </div>
-        ) : logs.length === 0 ? (
+        {logs.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12">
             <ScrollText className="h-6 w-6 text-neutral-600" />
             <p className="text-sm text-neutral-500">No audit logs yet.</p>

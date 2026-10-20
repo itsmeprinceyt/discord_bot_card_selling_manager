@@ -5,10 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Activity, Filter } from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
-import CustomLoader from "../../../(components)/CustomLoader";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
 import { AuditLogSinglelClient } from "../../../../types/AuditLog/auditLog.types";
 import { formatDateTime } from "../../../../utils/Formator/formatDateTime.util";
+import SkeletonBlock from "../../../(components)/SkeletonBlock";
 
 const ACTION_COLORS: Record<string, string> = {
   CREATE: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
@@ -19,6 +19,87 @@ const ACTION_COLORS: Record<string, string> = {
   ORDER_CANCELLED: "text-amber-400 bg-amber-500/10 border-amber-500/20",
   CARD_TRADED: "text-purple-400 bg-purple-500/10 border-purple-500/20",
 };
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
+function LogCardSkeleton() {
+  return (
+    <div className="flex gap-4 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+      <div className="mt-1 shrink-0">
+        <div className="h-8 w-8 animate-pulse rounded-full bg-neutral-800/70" />
+      </div>
+      <div className="flex-1 min-w-0">
+        {/* Badge + entity row */}
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <SkeletonBlock className="h-4.5 w-24 rounded-md" />
+          <SkeletonBlock className="h-3 w-14" />
+        </div>
+        {/* Description */}
+        <div className="space-y-1.5">
+          <SkeletonBlock className="h-3.5 w-full" />
+          <SkeletonBlock className="h-3.5 w-2/3" />
+        </div>
+        {/* Meta row */}
+        <div className="mt-2 flex items-center gap-3">
+          <SkeletonBlock className="h-3 w-32" />
+          <SkeletonBlock className="h-2.5 w-1" />
+          <SkeletonBlock className="h-3 w-20" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivitySkeleton() {
+  return (
+    <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
+      <div className="mx-auto w-full max-w-3xl">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <div className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+          <div className="flex-1 space-y-2">
+            <SkeletonBlock className="h-6 w-40" />
+            <SkeletonBlock className="h-3 w-56 max-w-full" />
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+          <div className="flex items-center gap-2 flex-1">
+            <div className="h-4 w-4 shrink-0 animate-pulse rounded bg-neutral-800/70" />
+            <SkeletonBlock className="h-9.5 flex-1 rounded-lg" />
+          </div>
+          <div className="flex items-center gap-2 flex-1">
+            <SkeletonBlock className="h-9.5 flex-1 rounded-lg" />
+          </div>
+        </div>
+
+        {/* Count line */}
+        <SkeletonBlock className="mb-4 h-3 w-40" />
+
+        {/* Log cards */}
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <LogCardSkeleton key={i} />
+          ))}
+        </div>
+
+        {/* Pagination placeholder */}
+        <div className="mt-8 flex items-center justify-center gap-2">
+          <SkeletonBlock className="h-8 w-16 rounded-lg" />
+          <SkeletonBlock className="h-3 w-20" />
+          <SkeletonBlock className="h-8 w-16 rounded-lg" />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function ActivityPage() {
   const params = useParams();
@@ -59,7 +140,7 @@ export default function ActivityPage() {
     load();
   }, [fetchLogs]);
 
-  if (loading && logs.length === 0) return <CustomLoader />;
+  if (loading && logs.length === 0) return <ActivitySkeleton />;
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">

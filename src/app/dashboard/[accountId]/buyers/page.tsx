@@ -7,6 +7,7 @@ import axios from "axios";
 import toast from "react-hot-toast";
 import ConfirmDialog from "../../../(components)/ConfirmDialog";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
+import SkeletonBlock from "../../../(components)/SkeletonBlock";
 
 interface BuyerOrder {
   id: string;
@@ -26,6 +27,91 @@ interface Buyer {
   created_at: string;
   orders: BuyerOrder[];
 }
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+
+function BuyerResultSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
+      {/* Header: buyer + action buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 bg-neutral-950/50 p-6">
+        <div className="space-y-2">
+          <SkeletonBlock className="h-3 w-16" />
+          <SkeletonBlock className="h-6 w-36" />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <SkeletonBlock className="h-8 w-28 rounded-lg" />
+          <SkeletonBlock className="h-8 w-32 rounded-lg" />
+          <SkeletonBlock className="h-8 w-36 rounded-lg" />
+          <SkeletonBlock className="h-8 w-48 rounded-lg" />
+        </div>
+      </div>
+
+      {/* Preview strip */}
+      <div className="border-b border-neutral-800 bg-neutral-950/30 px-6 py-3">
+        <SkeletonBlock className="mb-1 h-3 w-32" />
+        <SkeletonBlock className="h-3 w-2/3" />
+      </div>
+
+      {/* Body: active + waitlisted sections */}
+      <div className="p-6 space-y-8">
+        {/* Active section */}
+        <div>
+          <SkeletonBlock className="mb-4 h-4 w-36" />
+
+          {/* Group 1 */}
+          <div className="space-y-4">
+            <div>
+              <SkeletonBlock className="mb-2 h-3 w-20" />
+              <div className="space-y-1.5 pl-3 border-l-2 border-emerald-500/30">
+                <SkeletonBlock className="h-4 w-32" />
+                <SkeletonBlock className="h-4 w-28" />
+                <SkeletonBlock className="h-4 w-36" />
+              </div>
+            </div>
+
+            {/* Group 2 */}
+            <div>
+              <SkeletonBlock className="mb-2 h-3 w-24" />
+              <div className="space-y-1.5 pl-3 border-l-2 border-emerald-500/30">
+                <SkeletonBlock className="h-4 w-32" />
+                <SkeletonBlock className="h-4 w-28" />
+              </div>
+            </div>
+
+            {/* Total line */}
+            <div className="border-t border-neutral-800 pt-3">
+              <SkeletonBlock className="h-3 w-24" />
+            </div>
+          </div>
+        </div>
+
+        {/* Waitlisted section */}
+        <div>
+          <SkeletonBlock className="mb-4 h-4 w-40" />
+          <div className="space-y-4">
+            <div>
+              <SkeletonBlock className="mb-2 h-3 w-20" />
+              <div className="space-y-1.5 pl-3 border-l-2 border-amber-500/30">
+                <SkeletonBlock className="h-4 w-32" />
+                <SkeletonBlock className="h-4 w-28" />
+              </div>
+            </div>
+            <div className="border-t border-neutral-800 pt-3">
+              <SkeletonBlock className="h-3 w-24" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function BuyersPage() {
   const params = useParams();
@@ -304,7 +390,10 @@ export default function BuyersPage() {
           </div>
         )}
 
-        {searched && !buyer && (
+        {/* Skeleton while a search is in flight (no buyer yet to keep visible) */}
+        {loading && !buyer && <BuyerResultSkeleton />}
+
+        {!loading && searched && !buyer && (
           <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-center text-sm text-neutral-500">
             No buyer found with ID &quot;{search}&quot;
           </div>

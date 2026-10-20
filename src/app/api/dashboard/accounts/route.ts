@@ -22,6 +22,7 @@ interface AccountRow extends RowDataPacket {
   game_type: GameType;
   created_at: string;
   pending_count: number;
+  has_undeleted_completed: number;
 }
 
 interface IdRow extends RowDataPacket {
@@ -34,6 +35,7 @@ interface AccountListItem {
   game_type: GameType;
   created_at: string;
   pending_count: number;
+  isWarnIncoming: boolean;
 }
 
 /* --------------------------------- GET --------------------------------- */
@@ -54,7 +56,7 @@ export async function GET(req: Request) {
     const { redis_key: accountsListKey, redis_ttl: accountsListTtl } =
       RedisKeyService.accountsList(userId);
 
-    const redis = getRedis();
+    const redis = await getRedis();
 
     // ── Cache read (skipped when force-refreshing) ──────────────────────
     if (!forceRefresh) {
@@ -89,7 +91,8 @@ export async function GET(req: Request) {
               a.name,
               a.game_type,
               a.created_at,
-              COALESCE(p.pending_count, 0) AS pending_count
+              COALESCE(p.pending_count, 0) AS pending_count,
+              COALESCE(w.has_undeleted_completed, 0) AS has_undeleted_completed
          FROM accounts a
          LEFT JOIN (
            SELECT account_id, COUNT(*) AS pending_count
@@ -97,6 +100,12 @@ export async function GET(req: Request) {
             WHERE status = 'WAITING' AND deleted = FALSE
             GROUP BY account_id
          ) p ON p.account_id = a.id
+         LEFT JOIN (
+           SELECT account_id, 1 AS has_undeleted_completed
+             FROM orders
+            WHERE status = 'COMPLETED' AND deleted = FALSE
+            GROUP BY account_id
+         ) w ON w.account_id = a.id
         WHERE a.user_id = ?
         ORDER BY a.name ASC`,
       [userId],
@@ -108,11 +117,11 @@ export async function GET(req: Request) {
       game_type: r.game_type,
       created_at: r.created_at,
       pending_count: Number(r.pending_count),
+      isWarnIncoming: Number(r.has_undeleted_completed) > 0,
     }));
 
     // ── Cache write (always, including after a forced refresh) ──────────
     try {
-      // @upstash/redis: `set(key, value, { ex })` — 3 args max.
       await redis.set(accountsListKey, JSON.stringify(accounts), {
         ex: accountsListTtl,
       });

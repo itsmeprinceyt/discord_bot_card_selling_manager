@@ -5,9 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Copy, X } from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
-import CustomLoader from "../../../(components)/CustomLoader";
 import ConfirmDialog from "../../../(components)/ConfirmDialog";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
+import SkeletonBlock from "../../../(components)/SkeletonBlock";
 
 interface Tier {
   price_tier: number;
@@ -20,6 +20,117 @@ interface Buyer {
   discord_id: string;
   cards: Tier[];
 }
+
+/* ------------------------------------------------------------------ */
+/*  Skeleton                                                           */
+/* ------------------------------------------------------------------ */
+function BuyerCardSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
+      {/* Buyer header */}
+      <div className="flex items-center justify-between border-b border-neutral-800 bg-neutral-950/50 px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <SkeletonBlock className="h-4 w-32" />
+          <SkeletonBlock className="h-3 w-28" />
+        </div>
+        <SkeletonBlock className="ml-2 h-3.5 w-14 shrink-0" />
+      </div>
+
+      {/* Tier groups */}
+      <div className="px-4 py-3">
+        {/* Tier 1 */}
+        <div className="mb-3">
+          <SkeletonBlock className="mb-2 h-3 w-32" />
+          <div className="space-y-1.5">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between pl-2 border-l-2 border-emerald-500/50"
+              >
+                <div className="flex items-center gap-2 flex-1">
+                  <SkeletonBlock className="h-4 w-4 shrink-0 rounded" />
+                  <SkeletonBlock className="h-3.5 w-24" />
+                  <SkeletonBlock className="h-2.5 w-5" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tier 2 */}
+        <div>
+          <SkeletonBlock className="mb-2 h-3 w-28" />
+          <div className="space-y-1.5">
+            {[0, 1].map((i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between pl-2 border-l-2 border-emerald-500/50"
+              >
+                <div className="flex items-center gap-2 flex-1">
+                  <SkeletonBlock className="h-4 w-4 shrink-0 rounded" />
+                  <SkeletonBlock className="h-3.5 w-24" />
+                  <SkeletonBlock className="h-2.5 w-5" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TradeSheetSkeleton() {
+  return (
+    <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
+      <div className="mx-auto w-full max-w-3xl">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+          <div className="flex items-center gap-4">
+            <div className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
+            <div className="space-y-2">
+              <SkeletonBlock className="h-6 w-28" />
+              <SkeletonBlock className="h-3 w-48" />
+            </div>
+          </div>
+          <SkeletonBlock className="h-9.5 w-full sm:w-32 rounded-lg" />
+        </div>
+
+        {/* Stats grid — 2 base + 3 currency placeholders */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-xl border border-neutral-800 bg-neutral-900 p-4"
+            >
+              <SkeletonBlock className="h-7 w-12" />
+              <SkeletonBlock className="mt-2 h-3 w-16" />
+            </div>
+          ))}
+        </div>
+
+        {/* Copy format + currency controls */}
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <SkeletonBlock className="h-3.5 w-24" />
+          <SkeletonBlock className="h-7 w-24 rounded-lg" />
+          <SkeletonBlock className="h-7 w-32 rounded-lg" />
+          <SkeletonBlock className="h-7 w-20 rounded-lg" />
+          <SkeletonBlock className="h-7 w-24 rounded-lg" />
+        </div>
+
+        {/* Buyer cards */}
+        <div className="space-y-4">
+          <BuyerCardSkeleton />
+          <BuyerCardSkeleton />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function TradeSheetPage() {
   const params = useParams();
@@ -239,7 +350,7 @@ export default function TradeSheetPage() {
     (c) => grandTotals[c] > 0,
   );
 
-  if (loading) return <CustomLoader />;
+  if (loading) return <TradeSheetSkeleton />;
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
