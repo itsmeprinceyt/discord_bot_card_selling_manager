@@ -40,7 +40,7 @@ interface AccountOverview {
 
 /* --------------------------------- GET --------------------------------- */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ accountId: string }> },
 ) {
   try {
@@ -54,6 +54,9 @@ export async function GET(
         { status: 401 },
       );
     }
+
+    const { searchParams } = new URL(req.url);
+    const forceRefresh = searchParams.get("refresh") === "true";
 
     const pool = await getPool();
 
@@ -75,21 +78,31 @@ export async function GET(
 
     const redis = await getRedis();
 
-    // ── Cache read ──────────────────────────────────────────────────────
-    try {
-      const cached = await redis.get<string>(overviewKey);
-      if (cached) {
-        const parsed =
-          typeof cached === "string"
-            ? (JSON.parse(cached) as AccountOverview)
-            : (cached as AccountOverview);
-        return NextResponse.json({ ok: true, ...parsed });
+    // ── Cache read (skipped when force-refreshing) ──────────────────────
+    if (!forceRefresh) {
+      try {
+        const cached = await redis.get<string>(overviewKey);
+        if (cached) {
+          const parsed =
+            typeof cached === "string"
+              ? (JSON.parse(cached) as AccountOverview)
+              : (cached as AccountOverview);
+          return NextResponse.json({ ok: true, ...parsed });
+        }
+      } catch (cacheErr) {
+        console.error("GET /api/accounts/[id] cache read failed:", cacheErr);
       }
-    } catch (cacheErr) {
-      console.error("GET /api/accounts/[id] cache read failed:", cacheErr);
+    } else {
+      // Bust the key so concurrent readers don't get served a stale value
+      // while our fresh DB query is in flight.
+      try {
+        await invalidateAccountRedisKey(accountId);
+      } catch (cacheErr) {
+        console.error("GET /api/accounts/[id] cache bust failed:", cacheErr);
+      }
     }
 
-    // ── Cache miss → hit DB ─────────────────────────────────────────────
+    // ── Cache miss (or forced) → hit DB ─────────────────────────────────
     // 2. Fetch Account Details
     const [rows] = await pool.execute<AccountRow[]>(
       `SELECT id, name, game_type, created_at
@@ -161,7 +174,7 @@ export async function GET(
       },
     };
 
-    // ── Cache write ─────────────────────────────────────────────────────
+    // ── Cache write (always, including after a forced refresh) ──────────
     try {
       await redis.set(overviewKey, JSON.stringify(payload), {
         ex: overviewTtl,
