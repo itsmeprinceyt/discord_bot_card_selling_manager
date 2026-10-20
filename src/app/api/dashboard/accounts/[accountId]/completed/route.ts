@@ -86,7 +86,7 @@ export async function GET(
 
     const showDeleted = searchParams.get("showDeleted") !== "false";
 
-    const limit = 20;
+    const limit = 100;
 
     const pool = await getPool();
 

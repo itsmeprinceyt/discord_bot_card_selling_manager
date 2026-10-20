@@ -20,6 +20,7 @@ interface CardRow extends RowDataPacket {
 
 interface OrderRow extends RowDataPacket {
   id: string;
+  card_id: string;
   queue_position: number;
   discord_id: string;
 }
@@ -45,8 +46,7 @@ export async function GET(
     const search = searchParams.get("search") || "";
     const status = searchParams.get("status") || "";
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-    const limit = 20;
-    const offset = (page - 1) * limit;
+    const limit = 100;
 
     const pool = await getPool();
 
@@ -98,7 +98,7 @@ export async function GET(
       const card = cards[0];
 
       const [orders] = await pool.execute<OrderRow[]>(
-        `SELECT o.id, o.queue_position, b.discord_id 
+        `SELECT o.id, o.card_id, o.queue_position, b.discord_id 
          FROM orders o 
          JOIN buyers b ON o.buyer_id = b.id
          WHERE o.card_id = ? AND o.status = 'WAITING'
@@ -145,32 +145,55 @@ export async function GET(
     );
     const total = Number(countRes[0].total);
     const pages = Math.max(1, Math.ceil(total / limit));
+    const clampedPage = Math.min(page, pages);
+    const clampedOffset = (clampedPage - 1) * limit;
 
     const [cards] = await pool.execute<CardRow[]>(
       `SELECT id, card_code, price_tier, currency_type, status, traded_for, created_at 
        FROM cards WHERE ${whereClause} 
        ORDER BY created_at DESC 
        LIMIT ? OFFSET ?`,
-      [...queryParams, limit, offset],
+      [...queryParams, limit, clampedOffset],
     );
 
-    for (const card of cards) {
-      const [orders] = await pool.execute<OrderRow[]>(
-        `SELECT o.id, o.queue_position, b.discord_id 
-         FROM orders o 
+    // ── Batched orders fetch (1 query for all cards on this page) ────────
+    if (cards.length > 0) {
+      const cardIds = cards.map((c) => c.id);
+      const placeholders = cardIds.map(() => "?").join(",");
+
+      const [allOrders] = await pool.execute<OrderRow[]>(
+        `SELECT o.id, o.card_id, o.queue_position, b.discord_id
+         FROM orders o
          JOIN buyers b ON o.buyer_id = b.id
-         WHERE o.card_id = ? AND o.status = 'WAITING'
-         ORDER BY o.queue_position ASC`,
-        [card.id],
+         WHERE o.card_id IN (${placeholders}) AND o.status = 'WAITING'
+         ORDER BY o.card_id, o.queue_position ASC`,
+        cardIds,
       );
-      card.orders = orders.map((o) => ({
-        id: o.id,
-        queue_position: o.queue_position,
-        buyer: { discord_id: o.discord_id },
-      })) as any;
+
+      // Group orders by card_id
+      const ordersByCard = new Map<string, OrderRow[]>();
+      for (const o of allOrders) {
+        if (!ordersByCard.has(o.card_id)) ordersByCard.set(o.card_id, []);
+        ordersByCard.get(o.card_id)!.push(o);
+      }
+
+      for (const card of cards) {
+        const orders = ordersByCard.get(card.id) ?? [];
+        card.orders = orders.map((o) => ({
+          id: o.id,
+          queue_position: o.queue_position,
+          buyer: { discord_id: o.discord_id },
+        })) as any;
+      }
     }
 
-    return NextResponse.json({ ok: true, cards, total, pages });
+    return NextResponse.json({
+      ok: true,
+      cards,
+      total,
+      pages,
+      page: clampedPage,
+    });
   } catch (err) {
     console.error("GET cards failed:", err);
     return NextResponse.json(
