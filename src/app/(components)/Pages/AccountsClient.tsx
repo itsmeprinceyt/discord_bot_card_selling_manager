@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
   Wallet,
   X,
@@ -30,6 +31,7 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
 
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [pageError, setPageError] = useState("");
 
   const [sortBy, setSortBy] = useState<SortOption>("az");
@@ -64,25 +66,31 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
   });
 
   /* ----------------------------- fetch list ----------------------------- */
-  const fetchAccounts = useCallback(async () => {
-    setPageError("");
-    try {
-      const { data } = await axios.get<{
-        ok: true;
-        accounts: AccountItem[];
-      }>("/api/dashboard/accounts", { withCredentials: true });
+  const fetchAccounts = useCallback(
+    async (forceRefresh = false) => {
+      setPageError("");
+      try {
+        const { data } = await axios.get<{
+          ok: true;
+          accounts: AccountItem[];
+        }>("/api/dashboard/accounts", {
+          withCredentials: true,
+          params: forceRefresh ? { refresh: "true" } : undefined,
+        });
 
-      setAccounts(data.accounts ?? []);
-    } catch (err) {
-      if (axios.isAxiosError(err) && err.response?.status === 401) {
-        router.push("/login");
-        return;
+        setAccounts(data.accounts ?? []);
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 401) {
+          router.push("/login");
+          return;
+        }
+        setPageError(getAxiosErrorMessage(err, "Failed to load accounts"));
+      } finally {
+        setLoading(false);
       }
-      setPageError(getAxiosErrorMessage(err, "Failed to load accounts"));
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
+    },
+    [router],
+  );
 
   useEffect(() => {
     const load = () => {
@@ -90,6 +98,17 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
     };
     load();
   }, [fetchAccounts]);
+
+  /* ------------------------------ refresh ------------------------------ */
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await fetchAccounts(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchAccounts, refreshing]);
 
   /* ------------------------------- create ------------------------------- */
   async function handleCreate(e: React.FormEvent) {
@@ -197,38 +216,54 @@ export default function AccountsClient({ firstName }: { firstName: string }) {
           </div>
         </div>
 
-        {/* Sort bar */}
+        {/* Sort + refresh bar */}
         <div className="mt-8 flex items-center justify-between">
-          <div className="relative">
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setSortOpen((v) => !v)}
+                className="flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200"
+              >
+                <ArrowUpDown size={13} />
+                Sort: {SORT_LABEL[sortBy]}
+              </button>
+              {sortOpen && (
+                <div className="absolute left-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900 shadow-xl">
+                  {(["az", "pending"] as SortOption[]).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        setSortBy(opt);
+                        setSortOpen(false);
+                      }}
+                      className={`block w-full cursor-pointer px-3 py-2 text-left text-xs transition hover:bg-neutral-800 ${
+                        sortBy === opt ? "text-neutral-100" : "text-neutral-400"
+                      }`}
+                    >
+                      {opt === "az"
+                        ? "Name (A–Z)"
+                        : "Pending trades (highest first)"}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button
               type="button"
-              onClick={() => setSortOpen((v) => !v)}
-              className="flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200 disabled:opacity-50"
+              aria-label="Refresh accounts"
             >
-              <ArrowUpDown size={13} />
-              Sort: {SORT_LABEL[sortBy]}
+              <RefreshCw
+                size={13}
+                className={refreshing ? "animate-spin" : ""}
+              />
+              {refreshing ? "Refreshing…" : "Refresh"}
             </button>
-            {sortOpen && (
-              <div className="absolute left-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900 shadow-xl">
-                {(["az", "pending"] as SortOption[]).map((opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => {
-                      setSortBy(opt);
-                      setSortOpen(false);
-                    }}
-                    className={`block w-full cursor-pointer px-3 py-2 text-left text-xs transition hover:bg-neutral-800 ${
-                      sortBy === opt ? "text-neutral-100" : "text-neutral-400"
-                    }`}
-                  >
-                    {opt === "az"
-                      ? "Name (A–Z)"
-                      : "Pending trades (highest first)"}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
           <span className="text-xs text-neutral-500">
             {accounts.length} {accounts.length === 1 ? "account" : "accounts"}

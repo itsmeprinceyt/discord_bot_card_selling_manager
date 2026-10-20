@@ -37,7 +37,7 @@ interface AccountListItem {
 }
 
 /* --------------------------------- GET --------------------------------- */
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     const userId = session?.user?.id;
@@ -48,28 +48,41 @@ export async function GET() {
       );
     }
 
+    const { searchParams } = new URL(req.url);
+    const forceRefresh = searchParams.get("refresh") === "true";
+
     const { redis_key: accountsListKey, redis_ttl: accountsListTtl } =
       RedisKeyService.accountsList(userId);
 
     const redis = getRedis();
 
-    // ── Cache read ──────────────────────────────────────────────────────
-    try {
-      // `get` returns unknown without a type param. We store JSON, so treat
-      // the raw value as string and parse manually for determinism.
-      const cached = await redis.get<string>(accountsListKey);
-      if (cached) {
-        const parsed =
-          typeof cached === "string"
-            ? (JSON.parse(cached) as AccountListItem[])
-            : (cached as AccountListItem[]);
-        return NextResponse.json({ ok: true, accounts: parsed });
+    // ── Cache read (skipped when force-refreshing) ──────────────────────
+    if (!forceRefresh) {
+      try {
+        // `get` returns unknown without a type param. We store JSON, so treat
+        // the raw value as string and parse manually for determinism.
+        const cached = await redis.get<string>(accountsListKey);
+        if (cached) {
+          const parsed =
+            typeof cached === "string"
+              ? (JSON.parse(cached) as AccountListItem[])
+              : (cached as AccountListItem[]);
+          return NextResponse.json({ ok: true, accounts: parsed });
+        }
+      } catch (cacheErr) {
+        console.error("GET /api/accounts cache read failed:", cacheErr);
       }
-    } catch (cacheErr) {
-      console.error("GET /api/accounts cache read failed:", cacheErr);
+    } else {
+      // Bust the key so concurrent readers don't get served a stale value
+      // while our fresh DB query is in flight.
+      try {
+        await invalidateUserRedisKey("accountsList", userId);
+      } catch (cacheErr) {
+        console.error("GET /api/accounts cache bust failed:", cacheErr);
+      }
     }
 
-    // ── Cache miss → hit DB ─────────────────────────────────────────────
+    // ── Cache miss (or forced) → hit DB ─────────────────────────────────
     const pool = await getPool();
     const [rows] = await pool.execute<AccountRow[]>(
       `SELECT a.id,
@@ -97,7 +110,7 @@ export async function GET() {
       pending_count: Number(r.pending_count),
     }));
 
-    // ── Cache write ─────────────────────────────────────────────────────
+    // ── Cache write (always, including after a forced refresh) ──────────
     try {
       // @upstash/redis: `set(key, value, { ex })` — 3 args max.
       await redis.set(accountsListKey, JSON.stringify(accounts), {

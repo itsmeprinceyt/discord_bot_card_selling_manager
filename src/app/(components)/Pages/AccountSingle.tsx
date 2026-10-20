@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   UploadCloud,
   Search,
+  RefreshCw,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -25,25 +26,33 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
   const [account, setAccount] = useState<AccountSingleType | null>(null);
   const [stats, setStats] = useState<StatsSingle | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   /* -------------------- fetch data -------------------- */
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const { data } = await axios.get(`/api/dashboard/accounts/${accountId}`, {
-        withCredentials: true,
-      });
+  const fetchData = useCallback(
+    async (forceRefresh = false) => {
+      setLoading(true);
+      setError("");
+      try {
+        const { data } = await axios.get(
+          `/api/dashboard/accounts/${accountId}`,
+          {
+            withCredentials: true,
+            params: forceRefresh ? { refresh: "true" } : undefined,
+          },
+        );
 
-      setAccount(data.account);
-      setStats(data.stats);
-    } catch (err) {
-      setError(getAxiosErrorMessage(err, "Failed to load dashboard"));
-    } finally {
-      setLoading(false);
-    }
-  }, [accountId]);
+        setAccount(data.account);
+        setStats(data.stats);
+      } catch (err) {
+        setError(getAxiosErrorMessage(err, "Failed to load dashboard"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [accountId],
+  );
 
   useEffect(() => {
     const load = () => {
@@ -52,8 +61,28 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
     load();
   }, [fetchData]);
 
+  /* -------------------- refresh -------------------- */
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      // Keep the current UI visible while re-fetching (don't flip `loading`).
+      setError("");
+      const { data } = await axios.get(`/api/dashboard/accounts/${accountId}`, {
+        withCredentials: true,
+        params: { refresh: "true" },
+      });
+      setAccount(data.account);
+      setStats(data.stats);
+    } catch (err) {
+      setError(getAxiosErrorMessage(err, "Failed to refresh dashboard"));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [accountId, refreshing]);
+
   if (loading) return <CustomLoader />;
-  if (error)
+  if (error && !account)
     return (
       <main className="min-h-screen bg-neutral-950 p-8 text-red-400">
         {error}
@@ -137,13 +166,25 @@ export default function AccountSingle({ accountId }: { accountId: string }) {
           >
             <ArrowLeft size={16} />
           </button>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight truncate">
               {account.name}
             </h1>
             <p className="text-xs text-neutral-500 mt-1">{account.game_type}</p>
           </div>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:border-neutral-700 hover:text-neutral-200 disabled:opacity-50"
+            aria-label="Refresh dashboard"
+          >
+            <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
+
+        {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
