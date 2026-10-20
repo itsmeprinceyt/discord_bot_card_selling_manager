@@ -74,9 +74,15 @@ declare module "next-auth" {
 /* -------------------------------------------------------------------------- */
 
 const authOptions: NextAuthOptions = {
+  // 180 Days
   session: {
     strategy: "jwt",
-    maxAge: 60 * 24 * 30, // 30 days
+    maxAge: 60 * 60 * 24 * 180,
+    updateAge: 60 * 60 * 24,
+  },
+
+  jwt: {
+    maxAge: 60 * 60 * 24 * 180,
   },
 
   providers: [
