@@ -140,6 +140,24 @@ function readStoredFilters(): StoredFilters {
   return DEFAULT_FILTERS;
 }
 
+/** Check if the error is an Axios abort (used when a newer request supersedes). */
+function isAbortError(err: unknown): boolean {
+  if (axios.isCancel(err)) return true;
+  const code = (err as { code?: string })?.code;
+  return code === "ERR_CANCELED" || code === "ERR_ABORTED";
+}
+
+/** Check if the backend rejected because the order is not COMPLETED. */
+function isNotCompletedError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const msg = (err.response?.data as { error?: string } | undefined)?.error;
+  return (
+    err.response?.status === 400 &&
+    typeof msg === "string" &&
+    msg.toLowerCase().includes("only completed orders")
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Skeleton                                                           */
 /* ------------------------------------------------------------------ */
@@ -268,14 +286,8 @@ export default function CompletedPage() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
-  // ── Hydration gate ──────────────────────────────────────────────────
-  // We do NOT fetch or render the list until localStorage has been read,
-  // so the initial fetch always uses the persisted filters.
+  // Hydration gate (prevents fetching with default filters before localStorage loads)
   const [hydrated, setHydrated] = useState(false);
-
-  // ── First-load completion flag (render-relevant → state, not ref) ───
-  // ESLint `react-hooks/refs` forbids reading refs during render. This
-  // flag drives the skeleton branch below, so it must live in state.
   const [firstLoadDone, setFirstLoadDone] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -292,7 +304,6 @@ export default function CompletedPage() {
   const handleToggleDeletedRef = useRef<(id: string) => void>(() => {});
   const ordersRef = useRef<Order[]>([]);
 
-  // Abort / race guards for loadOrders (never read during render).
   const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
@@ -313,7 +324,7 @@ export default function CompletedPage() {
     onConfirm: () => {},
   });
 
-  /* ── 1. Hydrate from localStorage ONCE, before any fetch ───────────── */
+  /* ── 1. Hydrate from localStorage ONCE ─────────────────────────────── */
   useEffect(() => {
     const load = () => {
       const stored = readStoredFilters();
@@ -324,9 +335,9 @@ export default function CompletedPage() {
     load();
   }, []);
 
-  /* ── 2. Persist to localStorage whenever filters change (post-hydrate) */
+  /* ── 2. Persist to localStorage (post-hydrate) ─────────────────────── */
   useEffect(() => {
-    if (!hydrated) return; // don't overwrite storage with defaults
+    if (!hydrated) return;
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
@@ -344,18 +355,14 @@ export default function CompletedPage() {
       timerIntervalsRef.current.delete(orderId);
     }
     setBombTimers((prev) => {
+      if (!prev.has(orderId)) return prev;
       const next = new Map(prev);
       next.delete(orderId);
       return next;
     });
   }, []);
 
-  /**
-   * Load orders. Race-safe:
-   *  - Each call aborts the previous in-flight request.
-   *  - A monotonically increasing request id ensures only the newest
-   *    response is committed (older ones that resolved first are ignored).
-   */
+  /* ── Data Loader (Race-Safe) ───────────────────────────────────────── */
   const loadOrders = useCallback(
     async (overridePage?: number) => {
       const targetPage = overridePage ?? page;
@@ -375,7 +382,6 @@ export default function CompletedPage() {
           { withCredentials: true, signal: controller.signal },
         );
 
-        // Ignore responses from superseded requests.
         if (myRequestId !== requestIdRef.current) return null;
 
         setOrders(data.orders || []);
@@ -392,13 +398,7 @@ export default function CompletedPage() {
           page: number;
         };
       } catch (err) {
-        // Aborted requests are expected — swallow them.
-        if (
-          axios.isCancel?.(err) ||
-          (err as { code?: string })?.code === "ERR_CANCELED"
-        ) {
-          return null;
-        }
+        if (isAbortError(err)) return null;
         if (myRequestId !== requestIdRef.current) return null;
 
         toast.error(getAxiosErrorMessage(err, "Failed to fetch orders"));
@@ -422,7 +422,7 @@ export default function CompletedPage() {
     load();
   }, [hydrated, loadOrders]);
 
-  // Cleanup: abort any in-flight request + clear all bomb timers on unmount.
+  // Cleanup on unmount
   useEffect(() => {
     const intervals = timerIntervalsRef.current;
     return () => {
@@ -475,8 +475,28 @@ export default function CompletedPage() {
     });
   };
 
+  /* ── Toggle Deleted (with Safety Guards) ───────────────────────────── */
   const handleToggleDeleted = useCallback(
     async (orderId: string) => {
+      // 1. Fetch the *latest* order from the ref.
+      const currentOrder = ordersRef.current.find((o) => o.id === orderId);
+
+      // 2. If the row disappeared (e.g. via refresh/filter), kill the bomb
+      //    and exit silently. We do not want to fire an API call for a ghost row.
+      if (!currentOrder) {
+        clearBombTimer(orderId);
+        return;
+      }
+
+      // 3. If the row is no longer COMPLETED, do not hit the API. The bomb
+      //    might have been armed before an undo/refresh. Self-heal instead.
+      if (currentOrder.status !== "COMPLETED") {
+        clearBombTimer(orderId);
+        toast.error("This order is no longer completed. Refreshing list...");
+        await loadOrders();
+        return;
+      }
+
       setTogglingIds((prev) => new Set(prev).add(orderId));
       try {
         await axios.patch(
@@ -488,6 +508,7 @@ export default function CompletedPage() {
         clearBombTimer(orderId);
 
         if (showDeletedRef.current) {
+          // Update local state (tint change)
           setOrders((prevOrders) =>
             prevOrders.map((order) =>
               order.id === orderId
@@ -498,6 +519,7 @@ export default function CompletedPage() {
           return;
         }
 
+        // Hide-deleted mode: remove row locally.
         const remainingVisible = ordersRef.current
           .filter((o) => o.id !== orderId)
           .filter((o) => !o.deleted).length;
@@ -509,6 +531,15 @@ export default function CompletedPage() {
           await loadOrders();
         }
       } catch (err) {
+        // Backend says "Only completed orders can be toggled" -> race condition.
+        // The server state changed while the bomb was ticking.
+        if (isNotCompletedError(err)) {
+          clearBombTimer(orderId);
+          toast.error("This order is no longer completed. Refreshing list...");
+          await loadOrders();
+          return;
+        }
+
         toast.error(
           getAxiosErrorMessage(err, "Failed to toggle deleted status"),
         );
@@ -523,11 +554,14 @@ export default function CompletedPage() {
     [accountId, clearBombTimer, loadOrders],
   );
 
+  // Keep the ref updated so the bomb timer always calls the newest logic
   useEffect(() => {
     handleToggleDeletedRef.current = handleToggleDeleted;
   }, [handleToggleDeleted]);
 
+  /* ── Bomb Timer ────────────────────────────────────────────────────── */
   const startBombTimer = async (orderId: string, cardCode: string) => {
+    // Copy code immediately
     try {
       await navigator.clipboard.writeText(cardCode);
       setCopiedId(orderId);
@@ -535,7 +569,7 @@ export default function CompletedPage() {
         setCopiedId((prev) => (prev === orderId ? null : prev));
       }, 2000);
     } catch {
-      // ignore
+      // ignore clipboard errors on mobile
     }
 
     clearBombTimer(orderId);
@@ -543,6 +577,20 @@ export default function CompletedPage() {
     setBombTimers((prev) => new Map(prev).set(orderId, secondsLeft));
 
     const interval = setInterval(() => {
+      // Safety: if the row vanished from the current list while the bomb
+      // was ticking, stop the timer immediately.
+      const stillExists = ordersRef.current.some((o) => o.id === orderId);
+      if (!stillExists) {
+        clearInterval(interval);
+        timerIntervalsRef.current.delete(orderId);
+        setBombTimers((prev) => {
+          const next = new Map(prev);
+          next.delete(orderId);
+          return next;
+        });
+        return;
+      }
+
       secondsLeft -= 1;
       if (secondsLeft <= 0) {
         clearInterval(interval);
@@ -552,6 +600,7 @@ export default function CompletedPage() {
           next.delete(orderId);
           return next;
         });
+        // Fire the guarded toggle
         handleToggleDeletedRef.current(orderId);
       } else {
         setBombTimers((prev) => new Map(prev).set(orderId, secondsLeft));
@@ -649,10 +698,6 @@ export default function CompletedPage() {
   };
 
   // ── Render gate ─────────────────────────────────────────────────────
-  // Do not render the skeleton until we know the persisted filters AND the
-  // first fetch has settled. `firstLoadDone` is state (not a ref) so React
-  // re-renders when it flips — that's what `react-hooks/refs` was warning
-  // about in the previous version.
   if (!hydrated) return <OrdersSkeleton />;
   if (loading && orders.length === 0 && !firstLoadDone) {
     return <OrdersSkeleton />;
