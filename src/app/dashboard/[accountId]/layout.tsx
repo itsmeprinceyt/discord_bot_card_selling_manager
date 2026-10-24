@@ -1,25 +1,7 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-
-async function getAccountName(accountId: string): Promise<string | null> {
-  const { cookies } = await import("next/headers");
-  const cookieHeader = (await cookies()).toString();
-
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-
-  const res = await fetch(
-    `${baseUrl}/api/dashboard/accounts/${accountId}/name`,
-    {
-      headers: { cookie: cookieHeader },
-      cache: "no-store",
-    },
-  );
-
-  if (!res.ok) return null;
-  const data = (await res.json()) as { ok: boolean; name?: string };
-  return data.ok && data.name ? data.name : null;
-}
+import { getAccountName } from "../../../utils/ValueFetcher/getAccountName";
 
 export default async function AccountLayout({
   children,
@@ -33,7 +15,8 @@ export default async function AccountLayout({
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect("/login");
 
-  const accountName = await getAccountName(accountId);
+  // Direct DB call — no fetch, no localhost, no cookies forwarding needed
+  const accountName = await getAccountName(accountId, session.user.id);
 
   return (
     <div className="relative min-h-screen">
