@@ -25,12 +25,6 @@ import SkeletonBlock from "../../../(components)/SkeletonBlock";
 const BOMB_TIMER_SECONDS = 4;
 const STORAGE_KEY = "disc_card_mng";
 
-/**
- * When `showDeleted=false`, a delete only mutates local state (fast) until
- * the number of *visible* rows remaining on the current page drops to this
- * threshold. At that point we refetch so `total` / `pages` / `page` re-sync
- * with the DB and the next page's rows shift up correctly.
- */
 const REFETCH_THRESHOLD = 5;
 
 type StatusFilter = "all" | "WAITING" | "CANCELLED" | "COMPLETED";
@@ -104,7 +98,6 @@ function groupOrders(orders: Order[]) {
   return groups;
 }
 
-/** Small inline badge for the order status. */
 function StatusBadge({ status }: { status: Order["status"] }) {
   const styles: Record<Order["status"], string> = {
     COMPLETED: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -120,8 +113,6 @@ function StatusBadge({ status }: { status: Order["status"] }) {
   );
 }
 
-/** Read persisted filters from localStorage. Backwards compatible with
- *  older versions that stored just the status string. */
 function readStoredFilters(): StoredFilters {
   if (typeof window === "undefined") return DEFAULT_FILTERS;
   try {
@@ -157,7 +148,6 @@ function OrdersSkeleton() {
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
       <div className="mx-auto w-full max-w-6xl">
-        {/* Header: title + back button + right-side controls */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
             <div className="h-9 w-9 shrink-0 animate-pulse rounded-lg bg-neutral-800/70" />
@@ -173,7 +163,6 @@ function OrdersSkeleton() {
           </div>
         </div>
 
-        {/* Notice banner */}
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
           <SkeletonBlock className="h-4.5 w-4.5 shrink-0 rounded" />
           <div className="flex-1 space-y-2">
@@ -182,18 +171,14 @@ function OrdersSkeleton() {
           </div>
         </div>
 
-        {/* Search form */}
         <div className="flex gap-2 sm:gap-3 mb-6">
           <SkeletonBlock className="h-10.5 flex-1 rounded-lg" />
           <SkeletonBlock className="h-10.5 w-24 rounded-lg" />
         </div>
 
-        {/* Count line */}
         <SkeletonBlock className="mb-4 h-3 w-24" />
 
-        {/* Desktop table skeleton */}
         <div className="hidden sm:block overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
-          {/* Table head */}
           <div className="border-b border-neutral-800 px-4 py-3">
             <div className="flex items-center gap-6">
               <SkeletonBlock className="h-3 w-10" />
@@ -206,12 +191,10 @@ function OrdersSkeleton() {
             </div>
           </div>
 
-          {/* Group label row */}
           <div className="bg-neutral-950/50 px-4 py-2">
             <SkeletonBlock className="h-3 w-16" />
           </div>
 
-          {/* 6 order rows */}
           <div className="divide-y divide-neutral-800">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="flex items-center gap-6 px-4 py-3">
@@ -231,7 +214,6 @@ function OrdersSkeleton() {
           </div>
         </div>
 
-        {/* Mobile card skeleton */}
         <div className="sm:hidden space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i}>
@@ -285,27 +267,39 @@ export default function CompletedPage() {
   const [searchInput, setSearchInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+
+  // ── Hydration gate ──────────────────────────────────────────────────
+  // We do NOT fetch or render the list until localStorage has been read,
+  // so the initial fetch always uses the persisted filters.
+  const [hydrated, setHydrated] = useState(false);
+
+  // ── First-load completion flag (render-relevant → state, not ref) ───
+  // ESLint `react-hooks/refs` forbids reading refs during render. This
+  // flag drives the skeleton branch below, so it must live in state.
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
+
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [showDeleted, setShowDeleted] = useState(true);
+
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [bombTimers, setBombTimers] = useState<Map<string, number>>(new Map());
   const timerIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
-  // Loading state for the confirm dialog's async action (undo).
   const [undoLoading, setUndoLoading] = useState(false);
 
-  // Refs to avoid stale closures in the bomb-timer interval + rapid deletes.
   const showDeletedRef = useRef(showDeleted);
   const handleToggleDeletedRef = useRef<(id: string) => void>(() => {});
   const ordersRef = useRef<Order[]>([]);
+
+  // Abort / race guards for loadOrders (never read during render).
+  const abortRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     showDeletedRef.current = showDeleted;
   }, [showDeleted]);
 
-  // Keep a live ref of `orders` so handleToggleDeleted can read the latest
-  // committed state even when called multiple times before React re-renders.
   useEffect(() => {
     ordersRef.current = orders;
   }, [orders]);
@@ -319,18 +313,20 @@ export default function CompletedPage() {
     onConfirm: () => {},
   });
 
-  // Hydrate filters from localStorage on mount.
+  /* ── 1. Hydrate from localStorage ONCE, before any fetch ───────────── */
   useEffect(() => {
     const load = () => {
       const stored = readStoredFilters();
       setStatusFilter(stored.status);
       setShowDeleted(stored.showDeleted);
+      setHydrated(true);
     };
     load();
   }, []);
 
-  // Persist both filters to localStorage whenever they change.
+  /* ── 2. Persist to localStorage whenever filters change (post-hydrate) */
   useEffect(() => {
+    if (!hydrated) return; // don't overwrite storage with defaults
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
@@ -339,7 +335,7 @@ export default function CompletedPage() {
     } catch {
       // ignore
     }
-  }, [statusFilter, showDeleted]);
+  }, [statusFilter, showDeleted, hydrated]);
 
   const clearBombTimer = useCallback((orderId: string) => {
     const interval = timerIntervalsRef.current.get(orderId);
@@ -355,24 +351,36 @@ export default function CompletedPage() {
   }, []);
 
   /**
-   * Load orders. Optionally accepts an override page so callers (like
-   * handleToggleDeleted) can force a re-fetch on a specific page.
-   *
-   * Returns the parsed response so callers can inspect `page`/`pages`.
+   * Load orders. Race-safe:
+   *  - Each call aborts the previous in-flight request.
+   *  - A monotonically increasing request id ensures only the newest
+   *    response is committed (older ones that resolved first are ignored).
    */
   const loadOrders = useCallback(
     async (overridePage?: number) => {
       const targetPage = overridePage ?? page;
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const myRequestId = ++requestIdRef.current;
+
       setLoading(true);
       try {
         const { data } = await axios.get(
-          `/api/dashboard/accounts/${accountId}/completed?page=${targetPage}&search=${search}&status=${statusFilter}&showDeleted=${showDeleted}`,
-          { withCredentials: true },
+          `/api/dashboard/accounts/${accountId}/completed?page=${targetPage}&search=${encodeURIComponent(
+            search,
+          )}&status=${statusFilter}&showDeleted=${showDeleted}`,
+          { withCredentials: true, signal: controller.signal },
         );
+
+        // Ignore responses from superseded requests.
+        if (myRequestId !== requestIdRef.current) return null;
+
         setOrders(data.orders || []);
         setTotal(data.total || 0);
         setPages(data.pages || 1);
-        // Backend clamps to the last valid page; sync our state to it.
         if (data.page && data.page !== targetPage) {
           setPage(data.page);
         }
@@ -384,26 +392,41 @@ export default function CompletedPage() {
           page: number;
         };
       } catch (err) {
+        // Aborted requests are expected — swallow them.
+        if (
+          axios.isCancel?.(err) ||
+          (err as { code?: string })?.code === "ERR_CANCELED"
+        ) {
+          return null;
+        }
+        if (myRequestId !== requestIdRef.current) return null;
+
         toast.error(getAxiosErrorMessage(err, "Failed to fetch orders"));
         return null;
       } finally {
-        setLoading(false);
+        if (myRequestId === requestIdRef.current) {
+          setLoading(false);
+          setFirstLoadDone(true);
+        }
       }
     },
     [accountId, page, search, statusFilter, showDeleted],
   );
 
-  // Initial + reactive load whenever filters/page change.
+  /* ── 3. Single fetch driven by hydrated + filter/page/search state ── */
   useEffect(() => {
     const load = () => {
+      if (!hydrated) return;
       loadOrders();
     };
     load();
-  }, [loadOrders]);
+  }, [hydrated, loadOrders]);
 
+  // Cleanup: abort any in-flight request + clear all bomb timers on unmount.
   useEffect(() => {
     const intervals = timerIntervalsRef.current;
     return () => {
+      abortRef.current?.abort();
       intervals.forEach((interval) => clearInterval(interval));
     };
   }, []);
@@ -446,25 +469,12 @@ export default function CompletedPage() {
           toast.error(getAxiosErrorMessage(err, "Failed to undo order"));
         } finally {
           setUndoLoading(false);
-          // Close the modal on both success and failure so the user isn't
-          // stuck looking at a frozen dialog if the request errors.
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       },
     });
   };
 
-  /**
-   * Toggles `deleted` on a COMPLETED order.
-   *
-   * Behavior:
-   *  - showDeleted = true  → mutate local state (row stays visible, tint flips).
-   *  - showDeleted = false → remove row locally + decrement total optimistically.
-   *      Only when the number of *remaining visible* rows on this page drops
-   *      to REFETCH_THRESHOLD or below do we hit the API again — that way
-   *      pagination stays correct (total/pages/page re-sync) without
-   *      firing a GET on every single delete.
-   */
   const handleToggleDeleted = useCallback(
     async (orderId: string) => {
       setTogglingIds((prev) => new Set(prev).add(orderId));
@@ -478,7 +488,6 @@ export default function CompletedPage() {
         clearBombTimer(orderId);
 
         if (showDeletedRef.current) {
-          // Deleted rows still visible — just flip the tint locally.
           setOrders((prevOrders) =>
             prevOrders.map((order) =>
               order.id === orderId
@@ -489,8 +498,6 @@ export default function CompletedPage() {
           return;
         }
 
-        // Hidden-deleted mode: row must disappear from the list.
-        // Read from the ref so rapid successive calls see the latest state.
         const remainingVisible = ordersRef.current
           .filter((o) => o.id !== orderId)
           .filter((o) => !o.deleted).length;
@@ -499,9 +506,6 @@ export default function CompletedPage() {
         setTotal((prev) => Math.max(0, prev - 1));
 
         if (remainingVisible <= REFETCH_THRESHOLD) {
-          // Threshold hit — re-sync total/pages/page from the DB.
-          // Backend clamps `page` to the last valid page, which also
-          // covers the "this page emptied out" case.
           await loadOrders();
         }
       } catch (err) {
@@ -519,8 +523,6 @@ export default function CompletedPage() {
     [accountId, clearBombTimer, loadOrders],
   );
 
-  // Keep the ref in sync so the bomb-timer interval always calls the
-  // latest version of handleToggleDeleted.
   useEffect(() => {
     handleToggleDeletedRef.current = handleToggleDeleted;
   }, [handleToggleDeleted]);
@@ -550,7 +552,6 @@ export default function CompletedPage() {
           next.delete(orderId);
           return next;
         });
-        // Use ref so we always hit the latest closure.
         handleToggleDeletedRef.current(orderId);
       } else {
         setBombTimers((prev) => new Map(prev).set(orderId, secondsLeft));
@@ -647,7 +648,15 @@ export default function CompletedPage() {
     );
   };
 
-  if (loading && orders.length === 0) return <OrdersSkeleton />;
+  // ── Render gate ─────────────────────────────────────────────────────
+  // Do not render the skeleton until we know the persisted filters AND the
+  // first fetch has settled. `firstLoadDone` is state (not a ref) so React
+  // re-renders when it flips — that's what `react-hooks/refs` was warning
+  // about in the previous version.
+  if (!hydrated) return <OrdersSkeleton />;
+  if (loading && orders.length === 0 && !firstLoadDone) {
+    return <OrdersSkeleton />;
+  }
 
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">

@@ -67,15 +67,16 @@ export async function GET(
       );
     }
 
-    // Await so the DELETE finishes before we COUNT / SELECT.
     await cleanupOldCompletedOrders();
 
     const { searchParams } = new URL(req.url);
-    const requestedPage = Math.max(
-      1,
-      parseInt(searchParams.get("page") || "1", 10),
-    );
-    const search = searchParams.get("search") || "";
+
+    const requestedPageRaw = parseInt(searchParams.get("page") || "1", 10);
+    const requestedPage = Number.isFinite(requestedPageRaw)
+      ? Math.max(1, requestedPageRaw)
+      : 1;
+
+    const search = (searchParams.get("search") || "").trim();
 
     const rawStatus = searchParams.get("status") || "all";
     const statusFilter: StatusFilter = (
@@ -120,8 +121,6 @@ export async function GET(
       queryParams.push(`%${search}%`, `%${search.toUpperCase()}%`);
     }
 
-    // Count Total (with current filters — deleted rows are excluded when
-    // showDeleted=false, so total/pages shrink immediately after a delete)
     const [countResult] = await pool.execute<CountRow[]>(
       `SELECT COUNT(*) as total 
        FROM orders o
@@ -133,13 +132,9 @@ export async function GET(
     const total = countResult[0].total;
     const pages = Math.max(1, Math.ceil(total / limit));
 
-    // Clamp the requested page so that if the caller was on a page that no
-    // longer exists (e.g. last rows on page 1 got deleted), we return the
-    // last valid page instead of an empty slice.
     const page = Math.min(requestedPage, pages);
     const offset = (page - 1) * limit;
 
-    // Fetch Data
     const [rows] = await pool.execute<OrderRow[]>(
       `SELECT 
         o.id,
@@ -181,7 +176,7 @@ export async function GET(
       orders: formattedOrders,
       total,
       pages,
-      page, // echo back the clamped page the frontend should display
+      page,
     });
   } catch (err) {
     console.error("GET orders failed:", err);
