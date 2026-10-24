@@ -63,7 +63,6 @@ interface Order {
   };
 }
 
-/** Use completed_at when the order is completed, otherwise created_at. */
 function getOrderDate(order: Order): string {
   return order.completed_at || order.created_at;
 }
@@ -113,6 +112,65 @@ function StatusBadge({ status }: { status: Order["status"] }) {
   );
 }
 
+function CopyButton({
+  isCopied,
+  onCopy,
+}: {
+  isCopied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      className={`transition-all duration-200 cursor-pointer ${
+        isCopied
+          ? "text-emerald-400 scale-110"
+          : "text-neutral-600 hover:text-neutral-200"
+      }`}
+      title={isCopied ? "Copied!" : "Copy card code"}
+    >
+      {isCopied ? <Check size={14} /> : <Copy size={14} />}
+    </button>
+  );
+}
+
+function BombButton({
+  timer,
+  isCopied,
+  onArm,
+}: {
+  timer: number | undefined;
+  isCopied: boolean;
+  onArm: () => void;
+}) {
+  const isActive = timer !== undefined;
+
+  return (
+    <button
+      type="button"
+      onClick={onArm}
+      className={`relative transition-all duration-200 cursor-pointer ${
+        isActive
+          ? "text-orange-400 scale-125"
+          : isCopied
+            ? "text-emerald-400"
+            : "text-neutral-600 hover:text-orange-400 hover:scale-110"
+      }`}
+      title={
+        isActive ? `Bomb armed: ${timer}s` : "Arm bomb timer (copies code)"
+      }
+    >
+      <Bomb size={14} />
+      {isActive && (
+        <span className="absolute -top-2 -right-2 text-[10px] font-bold text-orange-400 bg-neutral-950 rounded-full px-1">
+          {timer}
+        </span>
+      )}
+    </button>
+  );
+}
+
 function readStoredFilters(): StoredFilters {
   if (typeof window === "undefined") return DEFAULT_FILTERS;
   try {
@@ -134,15 +192,24 @@ function readStoredFilters(): StoredFilters {
     if (STATUS_OPTIONS.some((o) => o.value === raw)) {
       return { status: raw as StatusFilter, showDeleted: true };
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
   return DEFAULT_FILTERS;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Skeleton                                                           */
-/* ------------------------------------------------------------------ */
+function isAbortError(err: unknown): boolean {
+  if (axios.isCancel(err)) return true;
+  const code = (err as { code?: string })?.code;
+  return code === "ERR_CANCELED" || code === "ERR_ABORTED";
+}
+
+function isNotCompletedError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const msg = (err.response?.data as { error?: string } | undefined)?.error;
+  return (
+    typeof msg === "string" &&
+    msg.toLowerCase().includes("only completed orders")
+  );
+}
 
 function OrdersSkeleton() {
   return (
@@ -250,10 +317,6 @@ function OrdersSkeleton() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
-
 export default function CompletedPage() {
   const params = useParams();
   const router = useRouter();
@@ -268,14 +331,7 @@ export default function CompletedPage() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
-  // ── Hydration gate ──────────────────────────────────────────────────
-  // We do NOT fetch or render the list until localStorage has been read,
-  // so the initial fetch always uses the persisted filters.
   const [hydrated, setHydrated] = useState(false);
-
-  // ── First-load completion flag (render-relevant → state, not ref) ───
-  // ESLint `react-hooks/refs` forbids reading refs during render. This
-  // flag drives the skeleton branch below, so it must live in state.
   const [firstLoadDone, setFirstLoadDone] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -292,7 +348,6 @@ export default function CompletedPage() {
   const handleToggleDeletedRef = useRef<(id: string) => void>(() => {});
   const ordersRef = useRef<Order[]>([]);
 
-  // Abort / race guards for loadOrders (never read during render).
   const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
@@ -313,7 +368,6 @@ export default function CompletedPage() {
     onConfirm: () => {},
   });
 
-  /* ── 1. Hydrate from localStorage ONCE, before any fetch ───────────── */
   useEffect(() => {
     const load = () => {
       const stored = readStoredFilters();
@@ -324,17 +378,14 @@ export default function CompletedPage() {
     load();
   }, []);
 
-  /* ── 2. Persist to localStorage whenever filters change (post-hydrate) */
   useEffect(() => {
-    if (!hydrated) return; // don't overwrite storage with defaults
+    if (!hydrated) return;
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({ status: statusFilter, showDeleted }),
       );
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [statusFilter, showDeleted, hydrated]);
 
   const clearBombTimer = useCallback((orderId: string) => {
@@ -344,18 +395,13 @@ export default function CompletedPage() {
       timerIntervalsRef.current.delete(orderId);
     }
     setBombTimers((prev) => {
+      if (!prev.has(orderId)) return prev;
       const next = new Map(prev);
       next.delete(orderId);
       return next;
     });
   }, []);
 
-  /**
-   * Load orders. Race-safe:
-   *  - Each call aborts the previous in-flight request.
-   *  - A monotonically increasing request id ensures only the newest
-   *    response is committed (older ones that resolved first are ignored).
-   */
   const loadOrders = useCallback(
     async (overridePage?: number) => {
       const targetPage = overridePage ?? page;
@@ -375,7 +421,6 @@ export default function CompletedPage() {
           { withCredentials: true, signal: controller.signal },
         );
 
-        // Ignore responses from superseded requests.
         if (myRequestId !== requestIdRef.current) return null;
 
         setOrders(data.orders || []);
@@ -392,13 +437,7 @@ export default function CompletedPage() {
           page: number;
         };
       } catch (err) {
-        // Aborted requests are expected — swallow them.
-        if (
-          axios.isCancel?.(err) ||
-          (err as { code?: string })?.code === "ERR_CANCELED"
-        ) {
-          return null;
-        }
+        if (isAbortError(err)) return null;
         if (myRequestId !== requestIdRef.current) return null;
 
         toast.error(getAxiosErrorMessage(err, "Failed to fetch orders"));
@@ -413,7 +452,6 @@ export default function CompletedPage() {
     [accountId, page, search, statusFilter, showDeleted],
   );
 
-  /* ── 3. Single fetch driven by hydrated + filter/page/search state ── */
   useEffect(() => {
     const load = () => {
       if (!hydrated) return;
@@ -422,7 +460,6 @@ export default function CompletedPage() {
     load();
   }, [hydrated, loadOrders]);
 
-  // Cleanup: abort any in-flight request + clear all bomb timers on unmount.
   useEffect(() => {
     const intervals = timerIntervalsRef.current;
     return () => {
@@ -477,6 +514,20 @@ export default function CompletedPage() {
 
   const handleToggleDeleted = useCallback(
     async (orderId: string) => {
+      const currentOrder = ordersRef.current.find((o) => o.id === orderId);
+
+      if (!currentOrder) {
+        clearBombTimer(orderId);
+        return;
+      }
+
+      if (currentOrder.status !== "COMPLETED") {
+        clearBombTimer(orderId);
+        toast.error("This order is no longer completed. Refreshing list...");
+        await loadOrders();
+        return;
+      }
+
       setTogglingIds((prev) => new Set(prev).add(orderId));
       try {
         await axios.patch(
@@ -509,6 +560,14 @@ export default function CompletedPage() {
           await loadOrders();
         }
       } catch (err) {
+        clearBombTimer(orderId);
+
+        if (isNotCompletedError(err)) {
+          toast.error("This order is no longer completed. Refreshing list...");
+          await loadOrders();
+          return;
+        }
+
         toast.error(
           getAxiosErrorMessage(err, "Failed to toggle deleted status"),
         );
@@ -527,22 +586,40 @@ export default function CompletedPage() {
     handleToggleDeletedRef.current = handleToggleDeleted;
   }, [handleToggleDeleted]);
 
-  const startBombTimer = async (orderId: string, cardCode: string) => {
+  const flashCopied = useCallback((key: string) => {
+    setCopiedId(key);
+    setTimeout(() => {
+      setCopiedId((prev) => (prev === key ? null : prev));
+    }, 2000);
+  }, []);
+
+  const startBombTimer = async (
+    orderId: string,
+    cardCode: string,
+    copyKey: string,
+  ) => {
     try {
       await navigator.clipboard.writeText(cardCode);
-      setCopiedId(orderId);
-      setTimeout(() => {
-        setCopiedId((prev) => (prev === orderId ? null : prev));
-      }, 2000);
-    } catch {
-      // ignore
-    }
+      flashCopied(copyKey);
+    } catch {}
 
     clearBombTimer(orderId);
     let secondsLeft = BOMB_TIMER_SECONDS;
     setBombTimers((prev) => new Map(prev).set(orderId, secondsLeft));
 
     const interval = setInterval(() => {
+      const stillExists = ordersRef.current.some((o) => o.id === orderId);
+      if (!stillExists) {
+        clearInterval(interval);
+        timerIntervalsRef.current.delete(orderId);
+        setBombTimers((prev) => {
+          const next = new Map(prev);
+          next.delete(orderId);
+          return next;
+        });
+        return;
+      }
+
       secondsLeft -= 1;
       if (secondsLeft <= 0) {
         clearInterval(interval);
@@ -561,98 +638,23 @@ export default function CompletedPage() {
     timerIntervalsRef.current.set(orderId, interval);
   };
 
-  const copyToClipboard = async (text: string, orderId: string) => {
+  const copyToClipboard = async (text: string, copyKey: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopiedId(orderId);
-      setTimeout(() => {
-        setCopiedId((prev) => (prev === orderId ? null : prev));
-      }, 2000);
-    } catch {
-      // ignore
-    }
+      flashCopied(copyKey);
+    } catch {}
   };
 
   const copyAllCodesInGroup = async (groupOrders: Order[]) => {
     const codes = groupOrders.map((o) => o.card.card_code).join("\n");
     try {
       await navigator.clipboard.writeText(codes);
-      setCopiedId(`group-${groupOrders[0]?.id}`);
-      setTimeout(() => {
-        setCopiedId((prev) =>
-          prev === `group-${groupOrders[0]?.id}` ? null : prev,
-        );
-      }, 2000);
-    } catch {
-      // ignore
-    }
+      flashCopied(`group-${groupOrders[0]?.id}`);
+    } catch {}
   };
 
   const groupedOrders = groupOrders(orders);
 
-  const CopyButton = ({
-    orderId,
-    cardCode,
-  }: {
-    orderId: string;
-    cardCode: string;
-  }) => {
-    const isCopied = copiedId === orderId;
-    return (
-      <button
-        onClick={() => copyToClipboard(cardCode, orderId)}
-        className={`transition-all duration-200 cursor-pointer ${
-          isCopied
-            ? "text-emerald-400 scale-110"
-            : "text-neutral-600 hover:text-neutral-200"
-        }`}
-        title={isCopied ? "Copied!" : "Copy card code"}
-      >
-        {isCopied ? <Check size={14} /> : <Copy size={14} />}
-      </button>
-    );
-  };
-
-  const BombButton = ({
-    orderId,
-    cardCode,
-  }: {
-    orderId: string;
-    cardCode: string;
-  }) => {
-    const timer = bombTimers.get(orderId);
-    const isActive = timer !== undefined;
-    const isCopied = copiedId === orderId;
-
-    return (
-      <button
-        onClick={() => startBombTimer(orderId, cardCode)}
-        className={`relative transition-all duration-200 cursor-pointer ${
-          isActive
-            ? "text-orange-400 scale-125"
-            : isCopied
-              ? "text-emerald-400"
-              : "text-neutral-600 hover:text-orange-400 hover:scale-110"
-        }`}
-        title={
-          isActive ? `Bomb armed: ${timer}s` : "Arm bomb timer (copies code)"
-        }
-      >
-        <Bomb size={14} />
-        {isActive && (
-          <span className="absolute -top-2 -right-2 text-[10px] font-bold text-orange-400 bg-neutral-950 rounded-full px-1">
-            {timer}
-          </span>
-        )}
-      </button>
-    );
-  };
-
-  // ── Render gate ─────────────────────────────────────────────────────
-  // Do not render the skeleton until we know the persisted filters AND the
-  // first fetch has settled. `firstLoadDone` is state (not a ref) so React
-  // re-renders when it flips — that's what `react-hooks/refs` was warning
-  // about in the previous version.
   if (!hydrated) return <OrdersSkeleton />;
   if (loading && orders.length === 0 && !firstLoadDone) {
     return <OrdersSkeleton />;
@@ -780,7 +782,6 @@ export default function CompletedPage() {
           </p>
         ) : (
           <>
-            {/* Desktop table */}
             <div
               className="
                 hidden sm:block
@@ -831,6 +832,7 @@ export default function CompletedPage() {
                       </tr>
                       {group.orders.map((order) => {
                         const canToggleDeleted = order.status === "COMPLETED";
+                        const copyKey = `desktop-${order.id}`;
                         return (
                           <tr
                             key={order.id}
@@ -874,12 +876,24 @@ export default function CompletedPage() {
                               <div className="flex items-center gap-2">
                                 <span>{order.card.card_code}</span>
                                 <CopyButton
-                                  orderId={order.id}
-                                  cardCode={order.card.card_code}
+                                  isCopied={copiedId === copyKey}
+                                  onCopy={() =>
+                                    copyToClipboard(
+                                      order.card.card_code,
+                                      copyKey,
+                                    )
+                                  }
                                 />
                                 <BombButton
-                                  orderId={order.id}
-                                  cardCode={order.card.card_code}
+                                  timer={bombTimers.get(order.id)}
+                                  isCopied={copiedId === copyKey}
+                                  onArm={() =>
+                                    startBombTimer(
+                                      order.id,
+                                      order.card.card_code,
+                                      copyKey,
+                                    )
+                                  }
                                 />
                               </div>
                             </td>
@@ -913,7 +927,6 @@ export default function CompletedPage() {
               </table>
             </div>
 
-            {/* Mobile */}
             <div className="sm:hidden space-y-4">
               {groupedOrders.map((group) => (
                 <div key={`mobile-group-${group.date}`}>
@@ -938,6 +951,7 @@ export default function CompletedPage() {
                   <div className="space-y-3">
                     {group.orders.map((order) => {
                       const canToggleDeleted = order.status === "COMPLETED";
+                      const copyKey = `mobile-${order.id}`;
                       return (
                         <div
                           key={order.id}
@@ -977,12 +991,24 @@ export default function CompletedPage() {
                                     {order.card.card_code}
                                   </div>
                                   <CopyButton
-                                    orderId={`mobile-${order.id}`}
-                                    cardCode={order.card.card_code}
+                                    isCopied={copiedId === copyKey}
+                                    onCopy={() =>
+                                      copyToClipboard(
+                                        order.card.card_code,
+                                        copyKey,
+                                      )
+                                    }
                                   />
                                   <BombButton
-                                    orderId={`mobile-${order.id}`}
-                                    cardCode={order.card.card_code}
+                                    timer={bombTimers.get(order.id)}
+                                    isCopied={copiedId === copyKey}
+                                    onArm={() =>
+                                      startBombTimer(
+                                        order.id,
+                                        order.card.card_code,
+                                        copyKey,
+                                      )
+                                    }
                                   />
                                   <StatusBadge status={order.status} />
                                 </div>
