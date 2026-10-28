@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  Info,
 } from "lucide-react";
 import axios from "axios";
 import { formatDateTime } from "../../../utils/Formator/formatDateTime.util";
@@ -157,6 +158,16 @@ export default function AuditLogPanel() {
             <RefreshCw className="h-4 w-4" />
           )}
         </button>
+      </div>
+
+      <div className="mb-6 flex items-start gap-3 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-300">
+        <Info size={18} className="shrink-0 mt-0.5" />
+        <p>
+          <strong>Notice:</strong> Every time a new log is recorded, the system
+          checks for entries older than <strong>6 months</strong> and
+          automatically deletes the <strong>50 oldest</strong> to keep the
+          database clean.
+        </p>
       </div>
 
       {/* Card */}

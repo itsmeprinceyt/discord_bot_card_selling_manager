@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Activity, Filter } from "lucide-react";
+import { ArrowLeft, Activity, Filter, Info } from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import getAxiosErrorMessage from "../../../../utils/Auth/Auth.AxiosHelper";
@@ -201,6 +201,16 @@ export default function ActivityPage() {
               <option value="ACCOUNT">Account</option>
             </select>
           </div>
+        </div>
+
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-300">
+          <Info size={18} className="shrink-0 mt-0.5" />
+          <p>
+            <strong>Notice:</strong> Every time a new log is recorded, the
+            system checks for entries older than <strong>6 months</strong> and
+            automatically deletes the <strong>50 oldest</strong> to keep the
+            database clean.
+          </p>
         </div>
 
         <div className="text-xs text-neutral-500 mb-4">
