@@ -10,6 +10,7 @@ import HomePageHeartbeat from "../hooks/Heartbeat.hook";
 import { SessionUserClient } from "../types/User/JWT.types";
 import AppShell from "./(components)/AppShell/AppShell";
 import CustomLoader from "./(components)/CustomLoader";
+import { Analytics } from "@vercel/analytics/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -98,6 +99,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           <Suspense fallback={<CustomLoader label="Loading ..." />}>
             <HomePageHeartbeat />
             {children}
+            <Analytics />
           </Suspense>
         </AppShell>
 
