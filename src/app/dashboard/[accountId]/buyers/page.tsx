@@ -1,8 +1,16 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Copy, Search, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Copy,
+  Search,
+  Loader2,
+  Pencil,
+  Check,
+  X,
+} from "lucide-react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import ConfirmDialog from "../../../(components)/ConfirmDialog";
@@ -35,7 +43,6 @@ interface Buyer {
 function BuyerResultSkeleton() {
   return (
     <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
-      {/* Header: buyer + action buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 bg-neutral-950/50 p-6">
         <div className="space-y-2">
           <SkeletonBlock className="h-3 w-16" />
@@ -48,20 +55,13 @@ function BuyerResultSkeleton() {
           <SkeletonBlock className="h-8 w-48 rounded-lg" />
         </div>
       </div>
-
-      {/* Preview strip */}
       <div className="border-b border-neutral-800 bg-neutral-950/30 px-6 py-3">
         <SkeletonBlock className="mb-1 h-3 w-32" />
         <SkeletonBlock className="h-3 w-2/3" />
       </div>
-
-      {/* Body: active + waitlisted sections */}
       <div className="p-6 space-y-8">
-        {/* Active section */}
         <div>
           <SkeletonBlock className="mb-4 h-4 w-36" />
-
-          {/* Group 1 */}
           <div className="space-y-4">
             <div>
               <SkeletonBlock className="mb-2 h-3 w-20" />
@@ -71,8 +71,6 @@ function BuyerResultSkeleton() {
                 <SkeletonBlock className="h-4 w-36" />
               </div>
             </div>
-
-            {/* Group 2 */}
             <div>
               <SkeletonBlock className="mb-2 h-3 w-24" />
               <div className="space-y-1.5 pl-3 border-l-2 border-emerald-500/30">
@@ -80,15 +78,11 @@ function BuyerResultSkeleton() {
                 <SkeletonBlock className="h-4 w-28" />
               </div>
             </div>
-
-            {/* Total line */}
             <div className="border-t border-neutral-800 pt-3">
               <SkeletonBlock className="h-3 w-24" />
             </div>
           </div>
         </div>
-
-        {/* Waitlisted section */}
         <div>
           <SkeletonBlock className="mb-4 h-4 w-40" />
           <div className="space-y-4">
@@ -128,10 +122,14 @@ export default function BuyersPage() {
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
-  // Loading state for the confirm dialog's async action (mark-active-done).
   const [confirmLoading, setConfirmLoading] = useState(false);
 
-  // Synchronous double-submit guard for the search form.
+  // Inline edit state for the buyer's Discord ID
+  const [editingId, setEditingId] = useState(false);
+  const [draftId, setDraftId] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
+  const saveSubmittingRef = useRef(false);
+
   const searchSubmittingRef = useRef(false);
 
   const [confirmDialog, setConfirmDialog] = useState({
@@ -145,10 +143,15 @@ export default function BuyersPage() {
 
   const formatDiscordId = (discord_id: string): string => `<@${discord_id}>`;
 
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
   const doSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // ── Synchronous guard ────────────────────────────────────────────────
     if (searchSubmittingRef.current || loading) return;
     if (!search.trim()) return;
 
@@ -158,6 +161,7 @@ export default function BuyersPage() {
     setError("");
     setCopiedCodes(false);
     setCopiedSummary(false);
+    setEditingId(false);
 
     try {
       const { data } = await axios.get(
@@ -190,6 +194,116 @@ export default function BuyersPage() {
     }
   };
 
+  /* ---------------------------------------------------------------- */
+  /*  Inline ID editing + transfer                                    */
+  /* ---------------------------------------------------------------- */
+
+  const startEditing = () => {
+    if (!buyer) return;
+    setDraftId(buyer.discord_id);
+    setEditingId(true);
+  };
+
+  const cancelEditing = () => {
+    setEditingId(false);
+    setDraftId("");
+  };
+
+  const commitEdit = () => {
+    if (!buyer) return;
+    const trimmed = draftId.trim();
+    if (!trimmed) {
+      setError("Discord ID is required");
+      return;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      setError("Discord ID must be numeric");
+      return;
+    }
+    if (trimmed === buyer.discord_id) {
+      setEditingId(false);
+      return;
+    }
+
+    const orderCount = buyer.orders.length;
+    const sourceId = buyer.discord_id;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: "Transfer Buyer",
+      message:
+        `Transfer all ${orderCount} order(s) from ${formatDiscordId(sourceId)} ` +
+        `to ${formatDiscordId(trimmed)}?\n\n` +
+        `If ${formatDiscordId(trimmed)} already has an order for the same card, ` +
+        `the ${formatDiscordId(sourceId)} entry for that card will be removed. ` +
+        `Otherwise the orders keep their queue position.`,
+      confirmText: "Transfer",
+      variant: "danger",
+      onConfirm: async () => {
+        if (saveSubmittingRef.current) return;
+        saveSubmittingRef.current = true;
+        setConfirmLoading(true);
+        setMsg("");
+        setError("");
+
+        try {
+          const { data } = await axios.patch(
+            `/api/dashboard/accounts/${accountId}/buyers/${buyer.id}`,
+            { discord_id: trimmed },
+            { withCredentials: true },
+          );
+
+          const parts: string[] = [];
+          if (data.reassigned > 0) parts.push(`${data.reassigned} transferred`);
+          if (data.dropped > 0) parts.push(`${data.dropped} dropped`);
+          setMsg(`Buyer updated: ${parts.join(", ") || "no orders moved"}.`);
+
+          // Source buyer may have been deleted — switch the view to target.
+          setSearch(trimmed);
+          setEditingId(false);
+          setDraftId("");
+
+          try {
+            const refreshRes = await axios.get(
+              `/api/dashboard/accounts/${accountId}/buyers?discord_id=${trimmed}`,
+              { withCredentials: true },
+            );
+            setBuyer(refreshRes.data.buyer);
+          } catch {
+            // Target exists but has no orders — show empty state.
+            setBuyer({
+              id: data.targetBuyerId,
+              discord_id: trimmed,
+              created_at: new Date().toISOString(),
+              orders: [],
+            });
+          }
+        } catch (err) {
+          setError(getAxiosErrorMessage(err, "Failed to transfer buyer"));
+          // Keep the edit field open so the user can retry / fix the ID.
+        } finally {
+          setConfirmLoading(false);
+          saveSubmittingRef.current = false;
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitEdit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEditing();
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /*  Mark active done                                                */
+  /* ---------------------------------------------------------------- */
+
   const handleMarkActiveDone = (deleteFromDiscord: boolean = false) => {
     if (!buyer) return;
     const activeOrders = getActiveOrders();
@@ -206,10 +320,6 @@ export default function BuyersPage() {
       confirmText: deleteFromDiscord ? "Mark Done & Delete" : "Mark Done",
       variant: deleteFromDiscord ? "danger" : "default",
       onConfirm: async () => {
-        // ConfirmDialog itself blocks double-clicks via its internal ref.
-        // We track `confirmLoading` here so the dialog shows "Working…"
-        // and the underlying page buttons stay disabled until the batch
-        // of API calls finishes.
         setConfirmLoading(true);
         try {
           for (const order of activeOrders) {
@@ -224,7 +334,9 @@ export default function BuyersPage() {
           }
 
           setMsg(
-            `${activeOrders.length} active orders marked as done${deleteFromDiscord ? " and deleted from Discord" : ""}.`,
+            `${activeOrders.length} active orders marked as done${
+              deleteFromDiscord ? " and deleted from Discord" : ""
+            }.`,
           );
           await refresh();
         } catch (err) {
@@ -236,6 +348,10 @@ export default function BuyersPage() {
       },
     });
   };
+
+  /* ---------------------------------------------------------------- */
+  /*  Derived data                                                    */
+  /* ---------------------------------------------------------------- */
 
   const getActiveOrders = () => {
     if (!buyer) return [];
@@ -326,6 +442,10 @@ export default function BuyersPage() {
   const activeCount = getActiveOrders().length;
   const waitlistedCount = getWaitlistedOrders().length;
 
+  /* ---------------------------------------------------------------- */
+  /*  Render                                                          */
+  /* ---------------------------------------------------------------- */
+
   return (
     <main className="min-h-screen bg-neutral-950 px-4 py-16 text-neutral-100">
       <div className="mx-auto w-full max-w-3xl">
@@ -390,7 +510,6 @@ export default function BuyersPage() {
           </div>
         )}
 
-        {/* Skeleton while a search is in flight (no buyer yet to keep visible) */}
         {loading && !buyer && <BuyerResultSkeleton />}
 
         {!loading && searched && !buyer && (
@@ -401,46 +520,107 @@ export default function BuyersPage() {
 
         {buyer && (
           <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 bg-neutral-950/50 p-6">
-              <div>
-                <div className="text-xs font-medium uppercase tracking-wider text-neutral-500">
-                  Buyer
+            <div className="flex flex-col gap-4 border-b border-neutral-800 bg-neutral-950/50 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                    Buyer
+                  </div>
+
+                  {editingId ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-1 rounded-lg border border-neutral-700 bg-neutral-950 px-2 py-1">
+                        <span className="shrink-0 text-base font-bold text-neutral-500 select-none sm:text-lg">
+                          &lt;@
+                        </span>
+                        <input
+                          ref={editInputRef}
+                          type="text"
+                          inputMode="numeric"
+                          value={draftId}
+                          onChange={(e) =>
+                            setDraftId(e.target.value.replace(/[^\d]/g, ""))
+                          }
+                          onKeyDown={handleEditKeyDown}
+                          disabled={confirmLoading}
+                          className="min-w-0 flex-1 bg-transparent text-base font-bold text-white outline-none disabled:opacity-60 sm:text-lg"
+                        />
+                        <span className="shrink-0 text-base font-bold text-neutral-500 select-none sm:text-lg">
+                          &gt;
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={commitEdit}
+                          disabled={confirmLoading}
+                          aria-label="Save"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 transition hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEditing}
+                          disabled={confirmLoading}
+                          aria-label="Cancel"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={startEditing}
+                      disabled={confirmLoading}
+                      title="Click to change Discord ID"
+                      className="group mt-1 flex max-w-full items-center gap-2 truncate text-base font-bold text-white transition hover:text-neutral-300 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer sm:text-lg"
+                    >
+                      <span className="truncate">
+                        {formatDiscordId(buyer.discord_id)}
+                      </span>
+                      <Pencil
+                        size={14}
+                        className="shrink-0 text-neutral-500 opacity-60 transition group-hover:opacity-100"
+                      />
+                    </button>
+                  )}
                 </div>
-                <div className="text-lg font-bold text-white mt-1">
-                  {formatDiscordId(buyer.discord_id)}
+
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                  <button
+                    onClick={copyCodesOnly}
+                    disabled={activeCount === 0 || confirmLoading || editingId}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <Copy size={14} />
+                    {copiedCodes ? "Copied!" : "Copy Codes"}
+                  </button>
+                  <button
+                    onClick={copyWithSummary}
+                    disabled={activeCount === 0 || confirmLoading || editingId}
+                    className="flex items-center justify-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <Copy size={14} />
+                    {copiedSummary ? "Copied!" : "Copy + Summary"}
+                  </button>
+                  <button
+                    onClick={() => handleMarkActiveDone(false)}
+                    disabled={activeCount === 0 || confirmLoading || editingId}
+                    className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Mark Active Done
+                  </button>
+                  <button
+                    onClick={() => handleMarkActiveDone(true)}
+                    disabled={activeCount === 0 || confirmLoading || editingId}
+                    className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Mark Active Done + Delete
+                  </button>
                 </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={copyCodesOnly}
-                  disabled={activeCount === 0 || confirmLoading}
-                  className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Copy size={14} />
-                  {copiedCodes ? "Copied!" : "Copy Codes"}
-                </button>
-                <button
-                  onClick={copyWithSummary}
-                  disabled={activeCount === 0 || confirmLoading}
-                  className="flex items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Copy size={14} />
-                  {copiedSummary ? "Copied!" : "Copy + Summary"}
-                </button>
-                <button
-                  onClick={() => handleMarkActiveDone(false)}
-                  disabled={activeCount === 0 || confirmLoading}
-                  className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Mark Active Done
-                </button>
-                <button
-                  onClick={() => handleMarkActiveDone(true)}
-                  disabled={activeCount === 0 || confirmLoading}
-                  className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Mark Active Done + Delete
-                </button>
               </div>
             </div>
 
@@ -449,7 +629,7 @@ export default function BuyersPage() {
                 <div className="mb-1 text-xs font-medium text-neutral-500">
                   Preview (active only):
                 </div>
-                <div className="font-mono text-xs text-neutral-400">
+                <div className="wrap-break-word font-mono text-xs text-neutral-400">
                   {getActiveCodes().join(", ")} ( {getActiveSummary()} )
                 </div>
               </div>
